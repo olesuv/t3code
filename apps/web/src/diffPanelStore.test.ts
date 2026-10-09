@@ -14,16 +14,15 @@ describe("diffPanelStore", () => {
     }),
   );
 
-  it("defaults each thread to Changes without requiring git status", () => {
+  it("defaults each thread to Uncommitted without requiring git status", () => {
     expect(
       selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, THREAD_REF),
-    ).toEqual({ kind: "branch", baseRef: null });
+    ).toEqual({ kind: "unstaged" });
   });
 
-  it("defaults to Changes before a thread is selected", () => {
+  it("defaults to Uncommitted before a thread is selected", () => {
     expect(selectThreadDiffPanelSelection(useDiffPanelStore.getState().byThreadKey, null)).toEqual({
-      kind: "branch",
-      baseRef: null,
+      kind: "unstaged",
     });
   });
 
