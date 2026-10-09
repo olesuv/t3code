@@ -93,6 +93,19 @@ export function WorkspaceDiffPanel(props: {
       }));
   const error = turn ? history.error : preview.error;
   const pending = turn ? history.isPending : preview.isPending;
+  const repositoryItems = [
+    { value: "all", label: "All repositories" },
+    ...workspace.repositories.map((entry) => ({ value: entry.id, label: entry.name })),
+  ];
+  const scopeItems = [
+    { value: "branch", label: "Changes" },
+    { value: "unstaged", label: "Uncommitted" },
+    ...(turns.length > 0 ? [{ value: "thread", label: "Full thread" }] : []),
+    ...turns.map((entry) => ({
+      value: `turn:${entry.runId}`,
+      label: `Turn ${entry.appRunOrdinal}`,
+    })),
+  ];
 
   const canRefresh = !repository && !turn && fileAccess.canReadFiles;
   const refreshPreview = preview.refresh;
@@ -113,6 +126,7 @@ export function WorkspaceDiffPanel(props: {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b px-3 py-2">
         <Select
+          items={repositoryItems}
           value={repository?.id ?? "all"}
           onValueChange={(value) => setRepositoryId(value === "all" ? null : value)}
         >
@@ -120,16 +134,16 @@ export function WorkspaceDiffPanel(props: {
             <SelectValue />
           </SelectTrigger>
           <SelectPopup>
-            <SelectItem value="all">All repositories</SelectItem>
-            {workspace.repositories.map((entry) => (
-              <SelectItem key={entry.id} value={entry.id}>
-                {entry.name}
+            {repositoryItems.map((entry) => (
+              <SelectItem key={entry.value} value={entry.value}>
+                {entry.label}
               </SelectItem>
             ))}
           </SelectPopup>
         </Select>
         {
           <Select
+            items={scopeItems}
             value={scope}
             onValueChange={(value) => {
               setFullThread(value === "thread");
@@ -146,12 +160,9 @@ export function WorkspaceDiffPanel(props: {
               <SelectValue />
             </SelectTrigger>
             <SelectPopup>
-              <SelectItem value="branch">Changes</SelectItem>
-              <SelectItem value="unstaged">Uncommitted</SelectItem>
-              {turns.length > 0 ? <SelectItem value="thread">Full thread</SelectItem> : null}
-              {turns.map((entry) => (
-                <SelectItem key={entry.id} value={`turn:${entry.runId}`}>
-                  Turn {entry.appRunOrdinal}
+              {scopeItems.map((entry) => (
+                <SelectItem key={entry.value} value={entry.value}>
+                  {entry.label}
                 </SelectItem>
               ))}
             </SelectPopup>
