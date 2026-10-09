@@ -1068,6 +1068,7 @@ export default function FilePreviewPanel({
   workspaceMutationId,
 }: FilePreviewPanelProps) {
   const roots = useMemo(() => (workspace ? workspaceFileRoots(workspace) : []), [workspace]);
+  const rootItems = roots.map((folder) => ({ value: folder.id, label: folder.name }));
   const root = rootId
     ? roots.find((entry) => entry.id === rootId)
     : ((requestedPath && isAbsolutePath(requestedPath)
@@ -1301,6 +1302,7 @@ export default function FilePreviewPanel({
       {workspace && !attachment ? (
         <div className="border-b px-3 py-2">
           <Select
+            items={rootItems}
             value={root?.id ?? roots[0]?.id ?? ""}
             onValueChange={(value) => {
               if (value) openFile(".", value);
@@ -1310,9 +1312,9 @@ export default function FilePreviewPanel({
               <SelectValue />
             </SelectTrigger>
             <SelectPopup>
-              {roots.map((folder) => (
-                <SelectItem key={folder.id} value={folder.id}>
-                  {folder.name}
+              {rootItems.map((folder) => (
+                <SelectItem key={folder.value} value={folder.value}>
+                  {folder.label}
                 </SelectItem>
               ))}
             </SelectPopup>
