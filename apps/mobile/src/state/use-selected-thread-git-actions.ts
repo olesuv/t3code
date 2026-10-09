@@ -30,7 +30,7 @@ import { setPendingConnectionError } from "./use-remote-environment-registry";
 import { useAtomCommand } from "./use-atom-command";
 import { showGitActionResult } from "./use-vcs-action-state";
 import { useThreadSelection } from "./use-thread-selection";
-import { useSelectedThreadWorktree } from "./use-selected-thread-worktree";
+import { useSelectedThreadGitCwd } from "./use-selected-thread-git-cwd";
 
 export function useSelectedThreadGitActions() {
   const updateThreadMetadata = useAtomCommand(threadEnvironment.updateMetadata, {
@@ -51,8 +51,9 @@ export function useSelectedThreadGitActions() {
     selectedThread?.environmentId ?? null,
     AuthOrchestrationOperateScope,
   );
-  const canChangeThreadBranch = canWriteSourceControl && canOperateThread;
-  const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
+  const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadGitCwd();
+  const canChangeThreadBranch =
+    canWriteSourceControl && canOperateThread && selectedThreadCwd !== null;
   const runStackedAction = useAtomCommand(
     vcsActionManager.runStackedAction({
       environmentId: selectedThread?.environmentId ?? null,
@@ -61,7 +62,9 @@ export function useSelectedThreadGitActions() {
     { reportFailure: false },
   );
 
-  const selectedThreadGitRootCwd = selectedThreadProject?.workspaceRoot ?? null;
+  const selectedThreadGitRootCwd = selectedThread?.workspace
+    ? selectedThreadCwd
+    : (selectedThreadProject?.workspaceRoot ?? null);
   const branchTarget = useMemo(
     () => ({
       environmentId: selectedThread?.environmentId ?? null,
@@ -240,9 +243,10 @@ export function useSelectedThreadGitActions() {
       // The Git mutation already landed; refresh what the worktree shows even
       // when the thread metadata update is denied, so the sheet does not keep
       // displaying the previous branch.
-      const updateResult = input.nextThreadState
-        ? await updateThreadGitContext(input.thread, input.nextThreadState)
-        : AsyncResult.success(undefined);
+      const updateResult =
+        input.nextThreadState && !input.thread.workspace
+          ? await updateThreadGitContext(input.thread, input.nextThreadState)
+          : AsyncResult.success(undefined);
       branchState.refresh();
       await refreshSelectedThreadGitStatus({ quiet: true, cwd: input.cwd });
       return AsyncResult.isFailure(updateResult)

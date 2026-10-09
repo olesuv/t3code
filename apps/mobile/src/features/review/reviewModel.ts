@@ -405,7 +405,7 @@ export function getReadyReviewCheckpoints(
 ): ReadonlyArray<ThreadCheckpointSummary> {
   return pipe(
     checkpoints,
-    Arr.filter((checkpoint) => checkpoint.status === "ready"),
+    Arr.filter((checkpoint) => checkpoint.status === "ready" || checkpoint.status === "partial"),
     Arr.sort(readyCheckpointOrder),
   );
 }

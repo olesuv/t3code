@@ -7,6 +7,8 @@ import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { useEnvironmentsWithScope } from "../../state/session";
 import { projectEnvironment } from "../../state/projects";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -61,6 +63,8 @@ function ProjectOverviewContent(props: {
   readonly environments: readonly SettingsTarget[];
 }) {
   const representative = props.members[0]!;
+  const editable = useEnvironmentsWithScope(props.members, AuthOrchestrationOperateScope);
+  const workspaceMembers = props.members.filter((member) => member.workspace);
   const displayName = deriveProjectGroupLabel({ representative, members: props.members });
   const [draftName, setDraftName] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -139,6 +143,36 @@ function ProjectOverviewContent(props: {
         </View>
       </SettingsSection>
 
+      {workspaceMembers.length > 0 ? (
+        <SettingsSection title="Workspace">
+          <View className="gap-3 p-4">
+            <Text className="text-sm text-foreground-muted">
+              Reload the workspace file for future threads. Existing threads keep their original
+              folders and repository history.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              disabled={
+                isSaving || workspaceMembers.some((member) => !editable.has(member.environmentId))
+              }
+              className="rounded-full bg-subtle-strong px-4 py-2 active:opacity-70"
+              onPress={() => {
+                setIsSaving(true);
+                void Promise.all(
+                  workspaceMembers.map((member) =>
+                    updateProject({
+                      environmentId: member.environmentId,
+                      input: { projectId: member.id, reloadWorkspace: true },
+                    }),
+                  ),
+                ).finally(() => setIsSaving(false));
+              }}
+            >
+              <Text className="text-sm font-t3-medium text-foreground">Reload workspace</Text>
+            </Pressable>
+          </View>
+        </SettingsSection>
+      ) : null}
       <SettingsSection title="Checkouts">
         {props.members.map((member, index) => {
           const environment = props.environments.find(

@@ -16,6 +16,7 @@ import type {
   EnvironmentId,
   ReviewDiffFileStat,
   ReviewDiffPreviewSource,
+  ThreadId,
 } from "@t3tools/contracts";
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
@@ -124,11 +125,13 @@ export function useReviewDiffData(input: {
   readonly selectedSection: ReviewSectionItem | null;
   readonly revision: string | undefined;
   readonly draftMessage: string;
+  readonly threadId?: ThreadId;
+  readonly repositoryId?: string;
 }) {
   const { draftMessage, selectedSection, threadKey } = input;
   const selectedSectionId = selectedSection?.id ?? null;
   const source = selectedSection?.source;
-  const lazySource = source?.truncated && source.files ? source : null;
+  const lazySource = (source?.truncated || input.repositoryId) && source?.files ? source : null;
   const previewDiff = useMemo<ReviewParsedDiff>(
     () =>
       lazySource
@@ -147,6 +150,8 @@ export function useReviewDiffData(input: {
   const scope = JSON.stringify([
     environmentId,
     cwd,
+    input.threadId,
+    input.repositoryId,
     source?.kind,
     source?.baseRef,
     source?.diffHash,
@@ -168,6 +173,9 @@ export function useReviewDiffData(input: {
                     cacheKey: scope,
                     request: {
                       cwd,
+                      ...(input.threadId && input.repositoryId
+                        ? { threadId: input.threadId, repositoryId: input.repositoryId }
+                        : {}),
                       ...(lazySource.baseRef ? { baseRef: lazySource.baseRef } : {}),
                       file: {
                         path: file.path,
@@ -179,7 +187,7 @@ export function useReviewDiffData(input: {
                 })
               : null,
           ),
-    [environmentId, cwd, lazySource, indices, scope],
+    [environmentId, cwd, lazySource, indices, scope, input.threadId, input.repositoryId],
   );
   const parsedQuery = useMemo(
     () =>

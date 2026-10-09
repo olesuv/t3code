@@ -1,6 +1,6 @@
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
 import { environmentSession } from "../../state/session";
-import type { EnvironmentId } from "@t3tools/contracts";
+import { workspaceFileRoots, type EnvironmentId } from "@t3tools/contracts";
 import { SymbolView } from "../../components/AppSymbol";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
 import { useCallback, useMemo, useState, type ComponentProps } from "react";
@@ -13,6 +13,8 @@ import {
   SearchBar,
 } from "react-native-screens";
 
+import { useThreadSelection } from "../../state/use-thread-selection";
+import { WorkspaceFolderPicker } from "./WorkspaceFolderPicker";
 import { AppText as Text, AppTextInput as TextInput } from "../../components/AppText";
 import { MaterialFilesHeader } from "./MaterialFilesHeader";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
@@ -31,8 +33,20 @@ export function ThreadFileNavigatorPane(props: {
   readonly headerInset: number;
   readonly projectName: string;
   readonly selectedPath: string | null;
-  readonly onSelectFile: (path: string) => void;
+  readonly rootId?: string | undefined;
+  readonly onSelectFile: (path: string, rootId?: string) => void;
 }) {
+  const { selectedThread } = useThreadSelection();
+  const workspace = selectedThread?.workspace;
+  const roots = useMemo(() => (workspace ? workspaceFileRoots(workspace) : []), [workspace]);
+  const context = JSON.stringify([props.cwd, props.rootId]);
+  const [selection, setSelection] = useState({ context, rootId: props.rootId });
+  const selectedRootId = selection.context === context ? selection.rootId : props.rootId;
+  const setSelectedRootId = (rootId: string) => setSelection({ context, rootId });
+  const root =
+    roots.find((entry) => entry.id === selectedRootId) ??
+    roots.find((entry) => entry.path === props.cwd);
+  const cwd = root?.path ?? props.cwd;
   const [searchQuery, setSearchQuery] = useState("");
   const { toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
@@ -53,19 +67,19 @@ export function ThreadFileNavigatorPane(props: {
   const { canReadFiles } = fileAccess;
   const entriesQuery = useFileTreeEntries({
     environmentId: props.environmentId,
-    cwd: canReadFiles ? props.cwd : null,
+    cwd: canReadFiles ? cwd : null,
     searchQuery,
   });
   const handlePreviewFile = useCallback(
     (relativePath: string) => {
       preloadWorkspaceFileContents({
-        cwd: props.cwd,
+        cwd,
         environmentId: props.environmentId,
         relativePath,
         theme: highlightTheme,
       });
     },
-    [highlightTheme, props.cwd, props.environmentId],
+    [highlightTheme, cwd, props.environmentId],
   );
   const nativeHeaderRightBarButtonItems = useMemo(
     () =>
@@ -84,27 +98,30 @@ export function ThreadFileNavigatorPane(props: {
   );
 
   const fileTree = (
-    <FileTreeBrowser
-      key={JSON.stringify([props.environmentId, props.cwd])}
-      entries={entriesQuery.entries}
-      loadingDirectories={entriesQuery.loadingDirectories}
-      onLoadDirectory={entriesQuery.loadDirectory}
-      error={
-        canReadFiles
-          ? entriesQuery.error
-          : fileAccess.isPending
-            ? null
-            : (fileAccess.error ?? "This connection cannot read host files.")
-      }
-      isPending={fileAccess.isPending || entriesQuery.isPending}
-      isRefreshing={entriesQuery.isRefreshing}
-      searchQuery={searchQuery}
-      searchTruncated={entriesQuery.searchTruncated}
-      selectedPath={props.selectedPath}
-      onPreviewFile={handlePreviewFile}
-      onRefresh={entriesQuery.refresh}
-      onSelectFile={props.onSelectFile}
-    />
+    <>
+      <WorkspaceFolderPicker roots={roots} selectedId={root?.id} onSelect={setSelectedRootId} />
+      <FileTreeBrowser
+        key={JSON.stringify([props.environmentId, cwd])}
+        entries={entriesQuery.entries}
+        loadingDirectories={entriesQuery.loadingDirectories}
+        onLoadDirectory={entriesQuery.loadDirectory}
+        error={
+          canReadFiles
+            ? entriesQuery.error
+            : fileAccess.isPending
+              ? null
+              : (fileAccess.error ?? "This connection cannot read host files.")
+        }
+        isPending={fileAccess.isPending || entriesQuery.isPending}
+        isRefreshing={entriesQuery.isRefreshing}
+        searchQuery={searchQuery}
+        searchTruncated={entriesQuery.searchTruncated}
+        selectedPath={cwd === props.cwd ? props.selectedPath : null}
+        onPreviewFile={handlePreviewFile}
+        onRefresh={entriesQuery.refresh}
+        onSelectFile={(path) => props.onSelectFile(path, root?.id)}
+      />
+    </>
   );
 
   if (Platform.OS === "ios") {

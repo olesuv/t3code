@@ -7,7 +7,7 @@ import {
   deriveThreadCheckpointSummaries,
   type ThreadCheckpointSummary,
 } from "@t3tools/client-runtime/state/thread-checkpoints";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, WorkspaceRepository } from "@t3tools/contracts";
 
 import { useCheckpointDiff } from "../../state/queries";
 import { useEnvironmentQuery } from "../../state/query";
@@ -35,9 +35,14 @@ export function useReviewSections(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
   readonly reviewCache: ReviewCacheForThread;
+  readonly repository?: WorkspaceRepository;
+  readonly fullThread?: boolean;
 }) {
   const { environmentId, reviewCache, threadId } = input;
   const enabled = input.enabled ?? true;
+  const sectionPrefix = input.repository
+    ? `${environmentId}:repository:${input.repository.id}:`
+    : "";
   const fileAccessSession = useEnvironmentQuery(
     environmentId === undefined ? null : environmentSession.sessionStateAtom(environmentId),
   );
@@ -50,12 +55,18 @@ export function useReviewSections(input: {
   });
   const { canReadFiles } = fileAccess;
   const selectedThread = useSelectedThreadProjection();
-  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const { selectedThreadCwd: defaultCwd } = useSelectedThreadWorktree();
+  const selectedThreadCwd = input.repository?.checkoutPath ?? defaultCwd;
   const diffPreview = useEnvironmentQuery(
     canReadFiles && enabled && environmentId !== undefined && selectedThreadCwd !== null
       ? reviewEnvironment.diffPreview({
           environmentId,
-          input: { cwd: selectedThreadCwd },
+          input: {
+            cwd: selectedThreadCwd,
+            ...(input.repository && threadId
+              ? { threadId, repositoryId: input.repository.id }
+              : {}),
+          },
         })
       : null,
   );
@@ -78,11 +89,11 @@ export function useReviewSections(input: {
     () =>
       Object.fromEntries(
         readyCheckpoints.map((checkpoint) => [
-          getReviewSectionIdForCheckpoint(checkpoint),
+          `${sectionPrefix}${getReviewSectionIdForCheckpoint(checkpoint)}`,
           checkpoint,
         ]),
       ) as Record<string, ThreadCheckpointSummary>,
-    [readyCheckpoints],
+    [readyCheckpoints, sectionPrefix],
   );
   const reviewSections = useMemo(() => {
     const sections = buildReviewSectionItems({
@@ -91,18 +102,36 @@ export function useReviewSections(input: {
         canReadFiles || fileAccess.isPending
           ? (diffPreview.data?.sources ?? reviewCache.gitSections)
           : [],
-      turnDiffById: reviewCache.turnDiffById,
-      loadingTurnIds,
+      turnDiffById: sectionPrefix
+        ? Object.fromEntries(
+            Object.entries(reviewCache.turnDiffById).map(([id, diff]) => [
+              id.startsWith(sectionPrefix) ? id.slice(sectionPrefix.length) : id,
+              diff,
+            ]),
+          )
+        : reviewCache.turnDiffById,
+      loadingTurnIds: sectionPrefix
+        ? Object.fromEntries(
+            Object.entries(loadingTurnIds).map(([id, pending]) => [
+              id.startsWith(sectionPrefix) ? id.slice(sectionPrefix.length) : id,
+              pending,
+            ]),
+          )
+        : loadingTurnIds,
       loadingGitSections: fileAccess.isPending || diffPreview.isPending,
     });
+    const qualifiedSections = sectionPrefix
+      ? sections.map((section) => ({ ...section, id: `${sectionPrefix}${section.id}` }))
+      : sections;
     // Keep the selected section while its grant loads, without displaying cached host files.
     return fileAccess.isPending
-      ? sections.map((section) =>
+      ? qualifiedSections.map((section) =>
           section.kind === "turn" ? section : { ...section, diff: null, isLoading: true },
         )
-      : sections;
+      : qualifiedSections;
   }, [
     canReadFiles,
+    sectionPrefix,
     diffPreview.data?.sources,
     diffPreview.isPending,
     fileAccess.isPending,
@@ -147,19 +176,24 @@ export function useReviewSections(input: {
   ]);
 
   let activeCheckpoint = readyCheckpoints[0] ?? null;
-  if (selectedSection?.kind === "turn") {
+  if (!input.fullThread && selectedSection?.kind === "turn") {
     activeCheckpoint = checkpointBySectionId[selectedSection.id] ?? activeCheckpoint;
   }
   const activeSectionId = activeCheckpoint
-    ? getReviewSectionIdForCheckpoint(activeCheckpoint)
+    ? `${sectionPrefix}${getReviewSectionIdForCheckpoint(activeCheckpoint)}`
     : null;
   const activeTurnDiff = useCheckpointDiff({
     environmentId: enabled ? (environmentId ?? null) : null,
     threadId: enabled ? (threadId ?? null) : null,
     fromTurnCount:
-      enabled && activeCheckpoint ? Math.max(0, activeCheckpoint.checkpointTurnCount - 1) : null,
+      enabled && canReadFiles && activeCheckpoint
+        ? input.fullThread
+          ? 0
+          : Math.max(0, activeCheckpoint.checkpointTurnCount - 1)
+        : null,
     toTurnCount: enabled ? (activeCheckpoint?.checkpointTurnCount ?? null) : null,
     ignoreWhitespace: false,
+    ...(input.repository ? { repositoryId: input.repository.id } : {}),
   });
 
   useEffect(() => {
@@ -173,9 +207,18 @@ export function useReviewSections(input: {
     if (!reviewCache.threadKey || !activeSectionId || !activeTurnDiff.data) {
       return;
     }
-    setReviewTurnDiff(reviewCache.threadKey, activeSectionId, activeTurnDiff.data.diff);
-    setReviewAsyncError(reviewCache.threadKey, null);
-  }, [activeSectionId, activeTurnDiff.data, reviewCache.threadKey]);
+    const repositoryDiff = input.repository
+      ? activeTurnDiff.data.repositories?.find(
+          (entry) => entry.repository.id === input.repository!.id,
+        )
+      : undefined;
+    setReviewTurnDiff(
+      reviewCache.threadKey,
+      activeSectionId,
+      repositoryDiff?.diff ?? activeTurnDiff.data.diff,
+    );
+    setReviewAsyncError(reviewCache.threadKey, repositoryDiff?.error ?? null);
+  }, [activeSectionId, activeTurnDiff.data, reviewCache.threadKey, input.repository]);
 
   useEffect(() => {
     if (reviewCache.threadKey && activeTurnDiff.error) {

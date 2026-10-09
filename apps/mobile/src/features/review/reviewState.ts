@@ -124,9 +124,10 @@ export interface ReviewAsyncState {
 function buildThreadKey(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
+  readonly repositoryId?: string;
 }): string | null {
   return input.environmentId && input.threadId
-    ? scopedThreadKey(input.environmentId, input.threadId)
+    ? `${scopedThreadKey(input.environmentId, input.threadId)}${input.repositoryId ? `:repository:${input.repositoryId}` : ""}`
     : null;
 }
 
@@ -137,6 +138,7 @@ function buildSectionCacheKey(threadKey: string, sectionId: string): string {
 export function useReviewCacheForThread(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
+  readonly repositoryId?: string;
 }): ReviewCacheForThread {
   const threadKey = buildThreadKey(input);
   const gitSections = useAtomValue(

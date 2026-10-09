@@ -1,4 +1,4 @@
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, WorkspaceRepository } from "@t3tools/contracts";
 import { useNavigation, type StaticScreenProps } from "@react-navigation/native";
 import { nativeHeaderScrollEdgeEffects } from "../../native/StackHeader";
 import { ScreenHeader } from "../../components/ScreenHeader";
@@ -50,7 +50,7 @@ import {
   useRegisterWorkspaceInspector,
 } from "../layout/AdaptiveWorkspaceLayout";
 import { useSelectedThreadWorktree } from "../../state/use-selected-thread-worktree";
-import { useReviewCacheForThread } from "./reviewState";
+import { useReviewCacheForThread, setReviewSelectedSectionId } from "./reviewState";
 import {
   isNativeReviewDiffDrawEvent,
   type NativeReviewDiffViewHandle,
@@ -61,6 +61,8 @@ import { useAppearanceCodeSurface } from "../settings/appearance/useAppearanceCo
 import { useReviewDiffData } from "./useReviewDiffData";
 import { useReviewDiffPrewarming } from "./useReviewDiffPrewarming";
 import { useReviewFileVisibility } from "./reviewFileVisibility";
+import { useThreadSelection } from "../../state/use-thread-selection";
+import { WorkspaceReviewSheet } from "./WorkspaceReviewSheet";
 import { useReviewSections } from "./useReviewSections";
 import { useNativeReviewDiffBridge } from "./useNativeReviewDiffBridge";
 import { useReviewCommentSelectionController } from "./useReviewCommentSelectionController";
@@ -441,12 +443,42 @@ function ReviewFileNavigator({
   );
 }
 
-type ReviewSheetProps = StaticScreenProps<{
+export type ReviewSheetProps = StaticScreenProps<{
   readonly environmentId: EnvironmentId;
   readonly threadId: ThreadId;
 }>;
 
 export function ReviewSheet(props: ReviewSheetProps) {
+  const { selectedThread } = useThreadSelection();
+  return selectedThread?.workspace ? (
+    <WorkspaceReviewSheet
+      key={`${props.route.params.environmentId}:${props.route.params.threadId}`}
+      {...props}
+      workspace={selectedThread.workspace}
+      renderRepository={(repository, fullThread, initialSection, showAll) => (
+        <RepositoryReviewSheet
+          key={`${repository.id}:${fullThread}`}
+          {...props}
+          repository={repository}
+          fullThread={fullThread}
+          initialSection={initialSection}
+          showAll={showAll}
+        />
+      )}
+    />
+  ) : (
+    <RepositoryReviewSheet {...props} />
+  );
+}
+
+function RepositoryReviewSheet(
+  props: ReviewSheetProps & {
+    readonly repository?: WorkspaceRepository;
+    readonly fullThread?: boolean;
+    readonly initialSection?: string;
+    readonly showAll?: () => void;
+  },
+) {
   const { nativeReviewDiffStyle } = useAppearanceCodeSurface();
   useAdaptiveWorkspacePaneRole("inspector");
   const { panes, showAuxiliaryPane } = useAdaptiveWorkspaceLayout();
@@ -459,8 +491,22 @@ export function ReviewSheet(props: ReviewSheetProps) {
   const retryEnvironment = useAtomCommand(environmentCatalog.retryNow, "environment retry");
   const isEnvironmentReady = environment.presentation?.connection.phase === "connected";
   const { draftMessage } = useThreadDraftForThread({ environmentId, threadId });
-  const reviewCache = useReviewCacheForThread({ environmentId, threadId });
-  const { selectedThreadCwd } = useSelectedThreadWorktree();
+  const reviewCache = useReviewCacheForThread({
+    environmentId,
+    threadId,
+    ...(props.repository
+      ? { repositoryId: `${props.repository.id}:${props.fullThread ? "full-thread" : "review"}` }
+      : {}),
+  });
+  useEffect(() => {
+    if (reviewCache.threadKey && props.initialSection)
+      setReviewSelectedSectionId(
+        reviewCache.threadKey,
+        `${environmentId}:repository:${props.repository!.id}:${props.initialSection}`,
+      );
+  }, [reviewCache.threadKey, props.initialSection, environmentId, props.repository]);
+  const { selectedThreadCwd: defaultCwd } = useSelectedThreadWorktree();
+  const selectedThreadCwd = props.repository?.checkoutPath ?? defaultCwd;
   const columnMetrics = useNativeColumnLayoutMetrics();
   const safeArea = columnMetrics?.safeArea ?? insets;
   const topContentInset = Platform.OS === "ios" ? safeArea.top : 0;
@@ -483,6 +529,8 @@ export function ReviewSheet(props: ReviewSheetProps) {
     environmentId,
     threadId,
     reviewCache,
+    ...(props.repository ? { repository: props.repository } : {}),
+    ...(props.fullThread ? { fullThread: true } : {}),
   });
   useReviewDiffPrewarming({
     threadKey: reviewCache.threadKey,
@@ -503,6 +551,7 @@ export function ReviewSheet(props: ReviewSheetProps) {
     selectedSection,
     revision: diffPreviewRevision,
     draftMessage,
+    ...(props.repository ? { threadId, repositoryId: props.repository.id } : {}),
   });
   // Resolution returns null while Expo registers the native view (or forever
   // when the binary lacks it). Rendering a null component type crashes the
@@ -714,7 +763,9 @@ export function ReviewSheet(props: ReviewSheetProps) {
   ]
     .filter(Boolean)
     .join(" · ");
-  const headerTitleText = selectedSection?.title ?? "Review changes";
+  const headerTitleText = props.repository
+    ? `${props.repository.name} · ${props.fullThread ? "Full thread" : (selectedSection?.title ?? "Changes")}`
+    : (selectedSection?.title ?? "Review changes");
 
   return (
     <>
@@ -737,6 +788,11 @@ export function ReviewSheet(props: ReviewSheetProps) {
 
       <MaterialScreenContent>
         <View className="flex-1 bg-sheet android:bg-sheet-solid">
+          {props.showAll ? (
+            <Pressable accessibilityRole="button" onPress={props.showAll} className="px-4 py-2">
+              <Text>All repositories</Text>
+            </Pressable>
+          ) : null}
           {showConnectionNotice ? (
             <View className="flex-1" style={{ paddingTop: topContentInset }}>
               <EnvironmentConnectionNotice

@@ -39,7 +39,7 @@ import { useEnvironmentQuery } from "../../../state/query";
 import { useThreadSelection } from "../../../state/use-thread-selection";
 import { useSelectedThreadGitActions } from "../../../state/use-selected-thread-git-actions";
 import { useSelectedThreadGitState } from "../../../state/use-selected-thread-git-state";
-import { useSelectedThreadWorktree } from "../../../state/use-selected-thread-worktree";
+import { useSelectedThreadGitCwd } from "../../../state/use-selected-thread-git-cwd";
 import { vcsEnvironment } from "../../../state/vcs";
 import { resolveGitOverviewReviewNavigationAction } from "./git-overview-navigation";
 import { MetaCard, SheetListRow, menuItemIconName, statusSummary } from "./gitSheetComponents";
@@ -75,7 +75,8 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
   const environmentId = EnvironmentId.make(props.route.params.environmentId);
   const threadId = ThreadId.make(props.route.params.threadId);
   const { selectedThread, selectedEnvironmentRuntime } = useThreadSelection();
-  const { selectedThreadCwd, selectedThreadWorktreePath } = useSelectedThreadWorktree();
+  const { selectedThreadCwd, selectedThreadWorktreePath, repository, selectRepository } =
+    useSelectedThreadGitCwd();
   const supportsLinkedPrSnapshots =
     selectedEnvironmentRuntime?.serverConfig?.environment.capabilities.threadPullRequests === true;
   const linkedPrChains = useMemo(
@@ -101,12 +102,16 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
       : null,
   );
 
-  const currentBranchLabel = gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD";
+  const currentBranchLabel =
+    selectedThread?.workspace && !repository
+      ? "Choose a repository"
+      : (gitStatus.data?.refName ?? selectedThread?.branch ?? "Detached HEAD");
   const currentStatusSummary = statusSummary(gitStatus.data);
   const currentWorktreePath = selectedThreadWorktreePath;
   const gitOperationLabel = gitState.gitOperationLabel;
   const busy = gitOperationLabel !== null;
-  const isRepo = gitStatus.data?.isRepo ?? true;
+  const isRepo =
+    selectedThread?.workspace && !repository ? false : (gitStatus.data?.isRepo ?? true);
   const hasPrimaryRemote = gitStatus.data?.hasPrimaryRemote ?? false;
   const isDefaultRef = gitStatus.data?.isDefaultRef ?? false;
 
@@ -569,6 +574,35 @@ function GitOverviewSheetContent(props: GitOverviewSheetProps) {
       )}
 
       <MaterialScreenContent insetHorizontal={layout.usesSplitView}>
+        {selectedThread?.workspace ? (
+          <View className="px-4 py-2">
+            <Text className="mb-1 text-sm">Repository for Git actions</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {selectedThread.workspace.repositories.map((entry) => (
+                <Pressable
+                  key={entry.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: entry.id === repository?.id }}
+                  onPress={() => selectRepository(entry.id)}
+                  className="mr-3 py-2"
+                >
+                  <Text
+                    className={
+                      entry.id === repository?.id ? "font-semibold" : "text-muted-foreground"
+                    }
+                  >
+                    {entry.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+            {!repository ? (
+              <Text className="text-sm text-muted-foreground">
+                Select a repository before committing, pushing, pulling, or changing branches.
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
         {content}
       </MaterialScreenContent>
     </View>

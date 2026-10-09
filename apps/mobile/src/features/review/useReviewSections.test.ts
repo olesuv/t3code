@@ -120,6 +120,25 @@ function makeInput(reviewCache = makeReviewCache()) {
   };
 }
 
+it("keeps partial repository history and cached turn patches in their qualified namespace", () => {
+  state.checkpoints = state.checkpoints.map((entry) => ({ ...entry, status: "partial" }));
+  const cache = makeReviewCache();
+  const sectionId = "environment:repository:external:turn:1";
+  const result = useReviewSections({
+    ...makeInput({
+      ...cache,
+      selectedSectionId: sectionId,
+      turnDiffById: { [sectionId]: checkpointDiff },
+    }),
+    repository: { id: "external", name: "External", checkoutPath: "/external" },
+  });
+  expect(result.selectedSection?.id).toBe(sectionId);
+  expect(result.selectedSection?.diff).toBe(checkpointDiff);
+  expect(
+    result.reviewSections.every((entry) => entry.id.startsWith("environment:repository:external:")),
+  ).toBe(true);
+});
+
 function renderSections(input: ReturnType<typeof makeInput>) {
   const result = useReviewSections(input);
   const effects = state.effects.splice(0);

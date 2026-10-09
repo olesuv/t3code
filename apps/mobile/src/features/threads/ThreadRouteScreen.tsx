@@ -494,11 +494,12 @@ function ThreadRouteContent(
     action.toggleAuxiliaryPane();
   }, []);
   const handleSelectInspectorFile = useCallback(
-    (path: string) => {
+    (path: string, rootId?: string) => {
       if (selectedThread === null) {
         return;
       }
       const params = {
+        ...(rootId ? { rootId } : {}),
         environmentId: String(selectedThread.environmentId),
         threadId: String(selectedThread.id),
         path: path.split("/").filter((segment) => segment.length > 0),

@@ -881,8 +881,14 @@ function FolderBrowser(props: {
     [props.environment.platform, props.pathInput],
   );
   const browseInput = useMemo(
-    () => (browsePath.directoryPath.length > 0 ? { partialPath: browsePath.directoryPath } : null),
-    [browsePath.directoryPath],
+    () =>
+      browsePath.directoryPath.length > 0
+        ? {
+            partialPath: browsePath.directoryPath,
+            ...(!props.pinnedDirectoryName ? { includeWorkspaceFiles: true } : {}),
+          }
+        : null,
+    [browsePath.directoryPath, props.pinnedDirectoryName],
   );
   const fileAccessSession = useEnvironmentQuery(
     environmentSession.sessionStateAtom(props.environment.environmentId),
@@ -956,7 +962,7 @@ function FolderBrowser(props: {
             title={entry.name}
             icon={
               <SymbolView
-                name="folder"
+                name={entry.kind === "workspace" ? "doc" : "folder"}
                 size={Platform.OS === "android" ? 24 : 17}
                 tintColorClassName="accent-icon-muted"
                 type="monochrome"
@@ -965,6 +971,10 @@ function FolderBrowser(props: {
             isFirst={index === 0 && !browsePath.canBrowseUp}
             right={null}
             onPress={() => {
+              if (entry.kind === "workspace") {
+                props.setPathInput(entry.fullPath);
+                return;
+              }
               void props.navigateToBrowsePath({
                 browseDirectoryPath: browsePath.directoryPath,
                 selectedDirectoryName: entry.name,

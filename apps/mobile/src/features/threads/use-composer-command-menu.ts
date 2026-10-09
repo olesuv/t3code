@@ -155,7 +155,7 @@ export function resolveComposerCommandSelection(input: {
 
   let replacement = "";
   if (item.type === "path") {
-    replacement = `${serializeComposerFileLink(item.path)} `;
+    replacement = `${serializeComposerFileLink(item.path, item.label)} `;
   } else if (item.type === "skill") {
     replacement = `$${item.skill.name} `;
   } else if (item.type === "slash-command") {
@@ -177,6 +177,7 @@ export function useComposerCommandMenu({
   threadShells = EMPTY_THREAD_SHELLS,
   currentThreadId = null,
   projectCwd,
+  workspaceProjectId,
   pullRequestProjectId = null,
   pullRequestRepository = null,
   selectedProviderStatus,
@@ -196,6 +197,7 @@ export function useComposerCommandMenu({
   /** Left out of `@` thread suggestions: a thread is never context for itself. */
   readonly currentThreadId?: ThreadId | null;
   readonly projectCwd: string | null;
+  readonly workspaceProjectId?: ProjectId;
   readonly pullRequestProjectId?: ProjectId | null;
   readonly pullRequestRepository?: string | null;
   readonly selectedProviderStatus: ServerProvider | null;
@@ -352,6 +354,11 @@ export function useComposerCommandMenu({
     environmentId,
     cwd: trigger?.kind === "path" ? projectCwd : null,
     query: trigger?.kind === "path" ? trigger.query : null,
+    ...(currentThreadId
+      ? { threadId: currentThreadId }
+      : workspaceProjectId
+        ? { projectId: workspaceProjectId }
+        : {}),
   });
   const pullRequestSearch = useComposerPullRequestSearch({
     environmentId,
@@ -512,11 +519,15 @@ export function useComposerCommandMenu({
         ...pathSearch.entries.map((entry) => {
           const parts = entry.path.split("/");
           return {
-            id: `path:${entry.path}`,
+            id: `path:${entry.root?.id ?? ""}:${entry.path}`,
             type: "path" as const,
-            path: entry.path,
+            path: entry.root
+              ? `${entry.root.path.replace(/[\\/]$/, "")}/${entry.path}`
+              : entry.path,
             kind: entry.kind,
-            label: parts[parts.length - 1] ?? entry.path,
+            label: entry.root
+              ? `${entry.root.name}/${parts[parts.length - 1] ?? entry.path}`
+              : (parts[parts.length - 1] ?? entry.path),
             description: parts.length > 1 ? parts.slice(0, -1).join("/") : "",
           };
         }),

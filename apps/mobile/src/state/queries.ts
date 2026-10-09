@@ -57,6 +57,8 @@ const threadSearchResultsAtom = createThreadSearchResultsAtomFamily({
 });
 
 export interface ComposerPathSearchTarget {
+  readonly threadId?: ThreadId;
+  readonly projectId?: ProjectId;
   readonly environmentId: EnvironmentId | null;
   readonly cwd: string | null;
   readonly query: string | null;
@@ -308,8 +310,10 @@ export function useComposerPathSearch(target: ComposerPathSearchTarget) {
       environmentId: target.environmentId,
       cwd: target.cwd,
       query: normalizeComposerPathSearchQuery(target.query),
+      threadId: target.threadId,
+      projectId: target.projectId,
     }),
-    [target.cwd, target.environmentId, target.query],
+    [target.cwd, target.environmentId, target.query, target.threadId, target.projectId],
   );
   const debouncedTarget = useDebouncedValue(normalizedTarget, COMPOSER_PATH_SEARCH_DEBOUNCE_MS);
   const fileAccessSession = useEnvironmentQuery(
@@ -333,6 +337,11 @@ export function useComposerPathSearch(target: ComposerPathSearchTarget) {
           environmentId: debouncedTarget.environmentId,
           input: {
             cwd: debouncedTarget.cwd,
+            ...(debouncedTarget.threadId
+              ? { threadId: debouncedTarget.threadId }
+              : debouncedTarget.projectId
+                ? { projectId: debouncedTarget.projectId }
+                : {}),
             query: debouncedTarget.query,
             limit: COMPOSER_PATH_SEARCH_LIMIT,
           },
@@ -349,7 +358,12 @@ export function useComposerPathSearch(target: ComposerPathSearchTarget) {
       !hasTarget || fileAccess.isPending
         ? null
         : canReadFiles
-          ? result.error
+          ? (result.error ??
+            (result.data?.rootErrors?.length
+              ? result.data.rootErrors
+                  .map((entry) => `${entry.root.name}: ${entry.message}`)
+                  .join("\n")
+              : null))
           : (fileAccess.error ?? "This connection cannot search host files."),
     isPending:
       normalizedTarget.query !== debouncedTarget.query ||
@@ -367,6 +381,7 @@ export function useCheckpointDiff(target: CheckpointDiffTarget) {
       target.ignoreWhitespace,
       target.threadId,
       target.toTurnCount,
+      target.repositoryId,
     ],
   );
   const fullThread = useEnvironmentQuery(

@@ -487,6 +487,7 @@ export function NewTaskDraftScreen(props: {
     [flow.attachments],
   );
   const composerMenu = useComposerCommandMenu({
+    ...(selectedProject?.workspace ? { workspaceProjectId: selectedProject.id } : {}),
     draftMessage: flow.prompt,
     ownerKey: flow.draftKey,
     environmentId: selectedProject?.environmentId ?? null,

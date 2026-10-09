@@ -1,3 +1,4 @@
+import type { WorkspaceFolder } from "@t3tools/contracts";
 import {
   isWorkspaceAudioPreviewPath,
   isWorkspaceVideoPreviewPath,
@@ -139,4 +140,19 @@ export function fileHeaderSubtitle(projectName: string, relativePath: string): s
   return isAbsolutePath(relativePath)
     ? parentDir
     : [projectName, parentDir].filter(Boolean).join(" · ");
+}
+
+/** Absolute mentions select the deepest declared folder; explicit folder identities retain aliases. */
+export function resolveWorkspaceFileRoot(
+  roots: ReadonlyArray<WorkspaceFolder>,
+  path: string | null,
+  rootId: string | null,
+) {
+  if (rootId !== null) return roots.find((root) => root.id === rootId) ?? null;
+  if (path === null || !isAbsolutePath(path)) return null;
+  return (
+    roots
+      .filter((root) => resolveWorkspaceRelativeFilePath(root.path, path) !== null)
+      .sort((a, b) => b.path.length - a.path.length)[0] ?? null
+  );
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  resolveWorkspaceFileRoot,
   fileRoutePathSegments,
   isSvgImagePreviewFile,
   resolveWorkspaceRelativeFilePath,
@@ -60,4 +61,19 @@ describe("fileHeaderSubtitle", () => {
   it("shows only the project for a file at the workspace root", () => {
     expect(fileHeaderSubtitle("t3code", "README.md")).toBe("t3code");
   });
+});
+
+it("selects frozen named roots for external and nested mentions while preserving explicit aliases", () => {
+  const roots = [
+    { id: "meta", name: "Meta", path: "/repo" },
+    { id: "child", name: "Child", path: "/repo/child" },
+    { id: "external", name: "External", path: "/external" },
+    { id: "alias", name: "Alias", path: "/external" },
+  ];
+  expect(resolveWorkspaceFileRoot(roots, "/repo/child/same.ts", null)?.id).toBe("child");
+  expect(resolveWorkspaceFileRoot(roots, "/external/same.ts", null)?.id).toBe("external");
+  expect(resolveWorkspaceFileRoot(roots, "same.ts", "alias")?.id).toBe("alias");
+  expect(resolveWorkspaceFileRoot(roots, "/external-other/same.ts", null)).toBeNull();
+  expect(resolveWorkspaceFileRoot(roots, "/external/../outside.ts", null)).toBeNull();
+  expect(resolveWorkspaceFileRoot(roots, "/external/same.ts", "removed")).toBeNull();
 });

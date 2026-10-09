@@ -142,7 +142,10 @@ export function useMediaActions(source: MediaActionsSource | undefined, onOpenFi
                     navigation.navigate("ThreadFile", {
                       environmentId: String(source.environmentId),
                       threadId: String(threadId),
-                      path: relativePath.split("/"),
+                      path:
+                        reference?.kind === "file"
+                          ? reference.path.split("/")
+                          : relativePath.split("/"),
                     });
                   },
                 },

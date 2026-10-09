@@ -145,6 +145,8 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   const selectedProject = projectGroups.find((group) => group.key === selectedProjectKey);
   const writableEnvironments = useEnvironmentsWithScope(selectedTargets, AuthSettingsWriteScope);
   const projectSelected = selectedProjectKey !== null;
+  const workspaceProject =
+    selectedProject?.members.some((member) => member.project.workspace != null) ?? false;
   const targets = resolveMobileSettingsTargets(
     selectedTargets,
     projectSelected ? (selectedProject?.members.map((member) => member.project) ?? []) : null,
@@ -293,7 +295,10 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                           uniform("defaultThreadEnvMode") === choice.mode
                         }
                         separated={index > 0}
-                        disabled={disabledFor("defaultThreadEnvMode")}
+                        disabled={
+                          disabledFor("defaultThreadEnvMode") ||
+                          (workspaceProject && choice.mode === "worktree")
+                        }
                         onPress={() => write({ defaultThreadEnvMode: choice.mode })}
                       />
                     ))}
@@ -372,9 +377,13 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     <SettingsSwitchRow
                       icon="arrow.down.circle"
                       label="Automatically pull"
-                      subtitle="Keep the default branch current when there are no local changes."
+                      subtitle={
+                        workspaceProject
+                          ? "Automatic pull is unavailable for workspace projects. Select a repository in Git to pull manually."
+                          : "Keep the default branch current when there are no local changes."
+                      }
                       value={uniform("defaultAutoPull")}
-                      disabled={disabledFor("defaultAutoPull")}
+                      disabled={disabledFor("defaultAutoPull") || workspaceProject}
                       onValueChange={(value) => write({ defaultAutoPull: value })}
                     />
                   </SettingsSection>
