@@ -30,6 +30,29 @@ beforeEach(() => {
 });
 
 describe("rightPanelStore", () => {
+  it("switches the existing Files tab between workspace roots", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.open(refA, "files");
+    store.openFile(refB, ".", undefined, "other-thread-root");
+
+    for (const rootId of ["meta", "nested-api", "nested-ui", "meta", undefined]) {
+      store.openFile(refA, ".", undefined, rootId);
+      const state = useRightPanelStore.getState().byThreadKey;
+      const surface = selectActiveRightPanelSurface(state, refA);
+      expect(surface?.kind).toBe("files");
+      expect(surface && "rootId" in surface ? surface.rootId : undefined).toBe(rootId);
+      expect(selectThreadRightPanelState(state, refA).surfaces.map((entry) => entry.id)).toEqual([
+        "diff",
+        "files",
+      ]);
+      expect(selectActiveRightPanelSurface(state, refB)).toMatchObject({
+        kind: "files",
+        rootId: "other-thread-root",
+      });
+    }
+  });
+
   it("keeps identical workspace filenames in separate root tabs and restores the selected folder", () => {
     const store = useRightPanelStore.getState();
     store.openFile(refA, "same.txt", 2, "one");

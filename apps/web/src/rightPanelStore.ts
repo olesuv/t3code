@@ -697,10 +697,15 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) => {
             if (requestedPath === ".") {
-              return upsertSurface(current, {
+              const surface = {
                 ...singletonSurface("files"),
                 ...(rootId ? { rootId } : {}),
-              });
+              };
+              const next = upsertSurface(current, surface);
+              return {
+                ...next,
+                surfaces: next.surfaces.map((entry) => (entry.id === surface.id ? surface : entry)),
+              };
             }
             // Workspace entry paths use '/', including on Windows.
             const relativePath = /^[A-Za-z]:\/+$/.test(requestedPath)
