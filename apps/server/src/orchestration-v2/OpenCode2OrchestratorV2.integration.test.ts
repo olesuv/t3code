@@ -22,6 +22,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import type { RuntimePolicyV2Override } from "./RuntimePolicy.ts";
 
 import {
   OPENCODE2_HTTP_PROTOCOL,
@@ -306,6 +307,7 @@ const runScenario = (input: {
   readonly threadId: ThreadId;
   readonly entries: ReadonlyArray<ProviderReplayEntry>;
   readonly commands: ReadonlyArray<OrchestrationV2Command>;
+  readonly runtimePolicyOverride?: RuntimePolicyV2Override;
 }) =>
   Effect.gen(function* () {
     const transcript = yield* OpenCode2OrchestratorReplayHarness.decodeTranscript({
@@ -323,7 +325,15 @@ const runScenario = (input: {
         : []),
     ]);
     const result = yield* runOrchestratorV2ProviderReplayScenario(
-      { name: input.name, transcript, commands: input.commands, steps },
+      {
+        name: input.name,
+        transcript,
+        commands: input.commands,
+        steps,
+        ...(input.runtimePolicyOverride === undefined
+          ? {}
+          : { runtimePolicyOverride: input.runtimePolicyOverride }),
+      },
       OpenCode2OrchestratorReplayHarness,
     ).pipe(provideDeterministicTestRuntime);
     const projection = result.projections.get(input.threadId);
@@ -497,11 +507,25 @@ describe("OpenCode 2 through the orchestrator", () => {
           name,
           threadId: thread.threadId,
           entries: [
-            ...createdSession(cwd, name, supervisedRules(name), true),
+            ...createdSession(
+              cwd,
+              name,
+              [
+                ...supervisedRules(name).slice(0, -2),
+                {
+                  action: "external_directory",
+                  resource: "/external/workspace/**",
+                  effect: "allow",
+                },
+                ...mcpRules(name),
+              ],
+              true,
+            ),
             ...instructionsWritten,
             ...answeredPrompt("FIRST"),
           ],
           commands: [thread.create, thread.message("first")],
+          runtimePolicyOverride: { additionalDirectories: ["/external/workspace"] },
         });
         assert.deepEqual(
           projection.runs.map((run) => run.status),

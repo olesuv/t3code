@@ -69,6 +69,21 @@ describe("acpPermissionDisposition", () => {
   });
 
   it("denies missing or out-of-root mutation locations", () => {
+    const workspacePolicy = {
+      ...policy,
+      sandboxPolicy: { type: "workspaceWrite" },
+      additionalDirectories: [writableRoot],
+    };
+    const edit = permissionRequest("edit", [{ path: NodePath.join(writableRoot, "workspace.ts") }]);
+    assert.equal(acpPermissionDisposition(workspacePolicy, edit), "allow");
+    assert.equal(
+      acpPermissionDisposition({ ...workspacePolicy, sandboxPolicy: { type: "readOnly" } }, edit),
+      "deny",
+    );
+    assert.equal(
+      acpPermissionDisposition({ ...workspacePolicy, approvalPolicy: "on-request" }, edit),
+      "ask",
+    );
     const outside = NodePath.resolve(process.cwd(), "outside-acp-permission-workspace", "file.ts");
     assert.equal(acpPermissionDisposition(policy, permissionRequest("edit")), "deny");
     assert.equal(

@@ -1171,7 +1171,10 @@ export const layer: Layer.Layer<
           });
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
-          const context = [delivery.context, restartNote]
+          const workspaceContext = projection.thread.workspace
+            ? `This thread uses a multi-folder workspace. Its folders on this environment are:\n${JSON.stringify(projection.thread.workspace.folders.map(({ name, path }) => ({ name, path })))}\nUse these existing checkouts. Workspace worktrees and filesystem restore are not supported.`
+            : "";
+          const context = [workspaceContext, delivery.context, restartNote]
             .filter((part) => part !== "")
             .join("\n\n");
           // A note continuation has no turn to resume; its text is the prompt.

@@ -4,6 +4,8 @@ import {
   ProjectId,
   ProviderInstanceId,
   type RuntimeMode,
+  type CodeWorkspace,
+  type OrchestrationV2ProviderCapabilities,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
@@ -17,6 +19,7 @@ import {
   type ProviderAdapterV2RuntimePolicy as ProviderAdapterV2RuntimePolicyType,
 } from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectStore from "./ProjectStore.ts";
+import * as NodePath from "node:path";
 
 /**
  * ERRORS
@@ -34,11 +37,48 @@ export class RuntimePolicyResolveError extends Schema.TaggedError<RuntimePolicyR
   }
 }
 
-export const RuntimePolicyV2Error = Schema.Union([RuntimePolicyResolveError]);
+export class WorkspaceProviderRootsUnsupportedError extends Schema.TaggedError<WorkspaceProviderRootsUnsupportedError>()(
+  "WorkspaceProviderRootsUnsupportedError",
+  { providerInstanceId: ProviderInstanceId, externalRootCount: Schema.Number },
+) {
+  override get message(): string {
+    return `Provider ${this.providerInstanceId} does not support external workspace folders. Choose Codex, Claude, OpenCode, or Antigravity, or use folders inside the workspace directory.`;
+  }
+}
+
+export const validateWorkspaceProviderRoots = (input: {
+  readonly workspace: CodeWorkspace;
+  readonly providerInstanceId: ProviderInstanceId;
+  readonly capabilities: OrchestrationV2ProviderCapabilities | undefined;
+}) => {
+  const externalRootCount = [
+    ...new Set(input.workspace.folders.map((folder) => folder.path)),
+  ].filter((directory) => {
+    const relative = NodePath.relative(input.workspace.workspaceRoot, directory);
+    return (
+      relative === ".." || relative.startsWith(`..${NodePath.sep}`) || NodePath.isAbsolute(relative)
+    );
+  }).length;
+  return externalRootCount > 0 &&
+    input.capabilities?.runtimePolicy.supportsAdditionalWorkspaceRoots !== true
+    ? Effect.fail(
+        new WorkspaceProviderRootsUnsupportedError({
+          providerInstanceId: input.providerInstanceId,
+          externalRootCount,
+        }),
+      )
+    : Effect.void;
+};
+
+export const RuntimePolicyV2Error = Schema.Union([
+  RuntimePolicyResolveError,
+  WorkspaceProviderRootsUnsupportedError,
+]);
 export type RuntimePolicyV2Error = typeof RuntimePolicyV2Error.Type;
 
 export const RuntimePolicyV2Override = Schema.Struct({
   cwd: Schema.optional(Schema.String),
+  additionalDirectories: Schema.optional(Schema.Array(Schema.String)),
   approvalPolicy: Schema.optional(Schema.Unknown),
   sandboxPolicy: Schema.optional(Schema.Unknown),
   reasoningEffort: Schema.optional(Schema.String),
@@ -67,7 +107,14 @@ export const layer: Layer.Layer<RuntimePolicyV2> = Layer.succeed(RuntimePolicyV2
     Effect.succeed({
       runtimeMode: input.thread.runtimeMode,
       interactionMode: input.thread.interactionMode,
-      cwd: input.thread.worktreePath,
+      cwd: input.thread.workspace?.workspaceRoot ?? input.thread.worktreePath,
+      ...(input.thread.workspace
+        ? {
+            additionalDirectories: [
+              ...new Set(input.thread.workspace.folders.map((folder) => folder.path)),
+            ],
+          }
+        : {}),
     }),
 });
 
@@ -105,6 +152,7 @@ export const layerFromProjectStore: Layer.Layer<
             : (yield* instance.snapshot.getSnapshot).supportedRuntimeModes;
         const cwd =
           input.thread.worktreePath ??
+          input.thread.workspace?.workspaceRoot ??
           (yield* projects.get(input.thread.projectId).pipe(
             Effect.mapError(
               (cause) =>
@@ -128,10 +176,34 @@ export const layerFromProjectStore: Layer.Layer<
               }),
             ),
           ));
+        const additionalDirectories = [
+          ...new Set(input.thread.workspace?.folders.map((folder) => folder.path) ?? []),
+        ];
+        if (input.thread.workspace) {
+          const capabilities =
+            instance === undefined
+              ? undefined
+              : yield* instance.orchestrationAdapter.getCapabilities().pipe(
+                  Effect.mapError(
+                    (cause) =>
+                      new RuntimePolicyResolveError({
+                        projectId: input.thread.projectId,
+                        providerInstanceId: input.modelSelection.instanceId,
+                        cause,
+                      }),
+                  ),
+                );
+          yield* validateWorkspaceProviderRoots({
+            workspace: input.thread.workspace,
+            capabilities,
+            providerInstanceId: input.modelSelection.instanceId,
+          });
+        }
         return ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),
           interactionMode: input.thread.interactionMode,
           cwd,
+          ...(input.thread.workspace ? { additionalDirectories } : {}),
         });
       }),
     });
@@ -152,6 +224,9 @@ export function layerWithOverride(
               ProviderAdapterV2RuntimePolicy.make({
                 ...policy,
                 ...(override.cwd === undefined ? {} : { cwd: override.cwd }),
+                ...(override.additionalDirectories === undefined
+                  ? {}
+                  : { additionalDirectories: override.additionalDirectories }),
                 ...(override.approvalPolicy === undefined
                   ? {}
                   : { approvalPolicy: override.approvalPolicy }),

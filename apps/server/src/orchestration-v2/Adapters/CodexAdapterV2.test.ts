@@ -465,6 +465,39 @@ describe("CodexAdapterV2 runtime policy", () => {
       assert.equal(params.sandboxPolicy?.type, "readOnly");
     }),
   );
+  it.effect(
+    "adds workspace directories to write sandboxes while preserving explicit read-only policy",
+    () =>
+      Effect.gen(function* () {
+        const build = (sandboxPolicy: unknown) =>
+          CodexAdapterV2.buildCodexTurnStartParams({
+            nativeThreadId: "workspace-roots",
+            codexInput: [{ type: "text", text: "test" }],
+            runtimePolicy: {
+              runtimeMode: "auto",
+              interactionMode: "default",
+              cwd: "/workspace",
+              additionalDirectories: ["/external"],
+              sandboxPolicy,
+            },
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.4" },
+          });
+        const write = yield* build({
+          type: "workspaceWrite",
+          writableRoots: ["/existing"],
+          networkAccess: false,
+        });
+        assert.deepEqual(write.sandboxPolicy, {
+          type: "workspaceWrite",
+          writableRoots: ["/existing", "/workspace", "/external"],
+          networkAccess: false,
+        });
+        assert.equal(write.approvalPolicy, "on-request");
+        assert.equal(write.approvalsReviewer, "auto_review");
+        const readOnly = yield* build({ type: "readOnly" });
+        assert.deepEqual(readOnly.sandboxPolicy, { type: "readOnly" });
+      }),
+  );
 
   it.effect("sends MCP app model context as untrusted Codex context", () =>
     Effect.gen(function* () {

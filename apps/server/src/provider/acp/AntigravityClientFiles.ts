@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import type * as FileSystem from "effect/FileSystem";
 import type * as Path from "effect/Path";
+import * as Option from "effect/Option";
 import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/compat";
 
@@ -46,10 +47,25 @@ const resolveClientFilePath = Effect.fn("AntigravityClientFiles.resolveClientFil
             Effect.orElseSucceed(() => true),
           );
           if (entryExists) return yield* outside;
-          const parent = yield* input.fileSystem
-            .realPath(path.dirname(resolved))
-            .pipe(Effect.orElseSucceed(() => path.dirname(resolved)));
-          return path.join(parent, path.basename(resolved));
+          // New writes can have several missing parents. Canonicalize the
+          // deepest existing ancestor so aliases (e.g. macOS /var) and links
+          // are checked against canonical roots before creating directories.
+          let parent = path.dirname(resolved);
+          const suffix = [path.basename(resolved)];
+          while (true) {
+            const canonical = yield* input.fileSystem.realPath(parent).pipe(Effect.option);
+            if (Option.isSome(canonical)) return path.join(canonical.value, ...suffix);
+            const parentExists = yield* input.fileSystem.readLink(parent).pipe(
+              Effect.as(true),
+              Effect.catch(() => input.fileSystem.exists(parent)),
+              Effect.orElseSucceed(() => true),
+            );
+            if (parentExists) return yield* outside;
+            const ancestor = path.dirname(parent);
+            if (ancestor === parent) return yield* outside;
+            suffix.unshift(path.basename(parent));
+            parent = ancestor;
+          }
         }),
       ),
     );

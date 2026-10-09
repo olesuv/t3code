@@ -267,10 +267,12 @@ export interface AcpAdapterV2Flavor {
     readonly readTextFile: (
       request: EffectAcpSchema.ReadTextFileRequest,
       cwd: string | null,
+      additionalDirectories?: ReadonlyArray<string>,
     ) => Effect.Effect<EffectAcpSchema.ReadTextFileResponse, EffectAcpErrors.AcpError>;
     readonly writeTextFile: (
       request: EffectAcpSchema.WriteTextFileRequest,
       cwd: string | null,
+      additionalDirectories?: ReadonlyArray<string>,
     ) => Effect.Effect<EffectAcpSchema.WriteTextFileResponse, EffectAcpErrors.AcpError>;
   };
   /**
@@ -5633,12 +5635,16 @@ export const makeAcpAdapterV2 = Effect.fn("makeAcpAdapterV2")(function* (
           if (clientFileSystem !== undefined) {
             yield* targetRuntime.handleReadTextFile((request) =>
               clientPolicyContext.pipe(
-                Effect.flatMap(({ policy }) => clientFileSystem.readTextFile(request, policy.cwd)),
+                Effect.flatMap(({ policy }) =>
+                  clientFileSystem.readTextFile(request, policy.cwd, policy.additionalDirectories),
+                ),
               ),
             );
             yield* targetRuntime.handleWriteTextFile((request) =>
               clientPolicyContext.pipe(
-                Effect.flatMap(({ policy }) => clientFileSystem.writeTextFile(request, policy.cwd)),
+                Effect.flatMap(({ policy }) =>
+                  clientFileSystem.writeTextFile(request, policy.cwd, policy.additionalDirectories),
+                ),
               ),
             );
           }

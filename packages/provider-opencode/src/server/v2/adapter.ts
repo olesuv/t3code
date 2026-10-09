@@ -194,7 +194,7 @@ const OpenCode2ProviderCapabilities = {
     nativeRequestIds: "strong",
   },
   // OpenCode enforces each runtime mode through the session's permission rules.
-  runtimePolicy: { enforcement: "native" },
+  runtimePolicy: { enforcement: "native", supportsAdditionalWorkspaceRoots: true },
 } satisfies OrchestrationV2ProviderCapabilities;
 
 type EventOf<T extends OpenCodeEvent["type"]> = Extract<OpenCodeEvent, { readonly type: T }>;
@@ -410,7 +410,7 @@ type TurnTerminal =
 type Rule = Permission.Rule;
 type RulesPolicy = Pick<
   ProviderAdapter.ProviderAdapterV2RuntimePolicy,
-  "runtimeMode" | "interactionMode"
+  "runtimeMode" | "interactionMode" | "additionalDirectories"
 >;
 type NativeForm = EventOf<"form.created">["data"]["form"];
 
@@ -496,6 +496,11 @@ const sessionRules = (
   // are never denied: the free tier refuses sessions whose rules deny them.
   ...(policy.interactionMode === "plan" ? [rule("edit", "deny")] : []),
   ...paths,
+  ...(policy.additionalDirectories ?? []).map((directory): Rule => ({
+    action: "external_directory",
+    resource: `${directory.replaceAll("\\", "/").replace(/\/$/, "")}/**`,
+    effect: "allow",
+  })),
   ...mcpRules(mcpServerName),
 ];
 

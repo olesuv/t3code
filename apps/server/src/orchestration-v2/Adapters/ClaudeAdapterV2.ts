@@ -271,6 +271,7 @@ export const ClaudeProviderCapabilitiesV2 = {
   },
   runtimePolicy: {
     enforcement: "native",
+    supportsAdditionalWorkspaceRoots: true,
   },
 } satisfies OrchestrationV2ProviderCapabilities;
 
@@ -818,6 +819,7 @@ export function makeClaudeQueryOptions(input: {
    * state.sqlite stay ungranted.
    */
   readonly attachmentsDir?: string;
+  readonly additionalDirectories?: ReadonlyArray<string> | undefined;
   readonly settings?: ClaudeSettings;
   readonly sdkSettings?: string | ClaudeSdkSettings;
   readonly environment?: NodeJS.ProcessEnv;
@@ -921,6 +923,7 @@ export function makeClaudeQueryOptions(input: {
   const additionalDirectories = [
     ...(input.cwd === null ? [] : [input.cwd]),
     ...(input.attachmentsDir === undefined ? [] : [input.attachmentsDir]),
+    ...(input.additionalDirectories ?? []),
   ];
   const withDirectories =
     additionalDirectories.length === 0 ? options : { ...options, additionalDirectories };
@@ -7347,6 +7350,7 @@ export function makeClaudeAdapterV2(
             resume: shouldResume,
             ...(resumeSessionAt === undefined ? {} : { resumeSessionAt }),
             cwd: turnInput.runtimePolicy.cwd,
+            additionalDirectories: turnInput.runtimePolicy.additionalDirectories,
             attachmentsDir,
             settings: adapterOptions.settings,
             environment: { ...adapterOptions.environment, ...mcpOverrides.mcpEnvironment },

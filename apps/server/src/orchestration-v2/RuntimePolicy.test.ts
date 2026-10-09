@@ -13,6 +13,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
+import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 
 import type { ProviderInstance } from "@t3tools/provider-core/server/driver";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
@@ -69,12 +70,22 @@ const supportedRuntimeModesByInstance = new Map<ProviderInstanceId, ReadonlyArra
 ]);
 const providerInstanceFor = (instanceId: ProviderInstanceId) =>
   ({
+    orchestrationAdapter: {
+      getCapabilities: () =>
+        Effect.succeed({
+          ...CodexProviderCapabilitiesV2,
+          runtimePolicy: {
+            enforcement: "native",
+            supportsAdditionalWorkspaceRoots: instanceId === providerInstanceId,
+          },
+        }),
+    },
     snapshot: {
       getSnapshot: Effect.succeed({
         supportedRuntimeModes: supportedRuntimeModesByInstance.get(instanceId),
       } as ServerProvider),
     },
-  }) as ProviderInstance;
+  }) as unknown as ProviderInstance;
 
 const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
   Layer.provide(
@@ -110,6 +121,48 @@ const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
 );
 
 it.layer(layerTest)("RuntimePolicyV2", (it) => {
+  it.effect(
+    "retains frozen workspace roots and grants directories without changing the runtime mode",
+    () =>
+      Effect.gen(function* () {
+        const policy = yield* RuntimePolicy.RuntimePolicyV2;
+        const thread = {
+          ...makeThread({
+            now: yield* DateTime.now,
+            worktreePath: null,
+            runtimeMode: "approval-required",
+          }),
+          workspace: {
+            filePath: "/original/all.code-workspace",
+            workspaceRoot: "/original",
+            folders: [{ id: "one", name: "External", path: "/external" }],
+            repositories: [],
+          },
+        };
+        const resolved = yield* policy.resolve({ thread, modelSelection });
+        assert.equal(resolved.cwd, "/original");
+        assert.deepEqual(resolved.additionalDirectories, ["/external"]);
+        assert.equal(resolved.runtimeMode, "approval-required");
+        assert.isUndefined(resolved.sandboxPolicy);
+        const unsupported = { ...modelSelection, instanceId: grokInstanceId };
+        const error = yield* policy
+          .resolve({ thread, modelSelection: unsupported })
+          .pipe(Effect.flip);
+        assert.equal(error._tag, "WorkspaceProviderRootsUnsupportedError");
+        assert.include(error.message, "does not support external workspace folders");
+        const nested = {
+          ...thread,
+          workspace: {
+            ...thread.workspace,
+            folders: [{ id: "nested", name: "Nested", path: "/original/nested" }],
+          },
+        };
+        assert.equal(
+          (yield* policy.resolve({ thread: nested, modelSelection: unsupported })).cwd,
+          "/original",
+        );
+      }),
+  );
   it.effect("uses the project root for local-checkout threads", () =>
     Effect.gen(function* () {
       const policy = yield* RuntimePolicy.RuntimePolicyV2;

@@ -160,6 +160,22 @@ function makeClaudeTestTurnInput(input: {
 }
 
 describe("ClaudeAdapterV2 runtime query policy", () => {
+  it("passes declared workspace roots while preserving native permission mode", () => {
+    const options = ClaudeAdapterV2.makeClaudeQueryOptions({
+      modelSelection: CLAUDE_TEST_MODEL_SELECTION,
+      nativeThreadId: "workspace",
+      resume: false,
+      cwd: "/workspace",
+      additionalDirectories: ["/external", "/workspace/nested"],
+      permissionMode: "default",
+    });
+    assert.deepEqual(options.additionalDirectories, [
+      "/workspace",
+      "/external",
+      "/workspace/nested",
+    ]);
+    assert.equal(options.permissionMode, "default");
+  });
   it.each([false, true])("requests thinking summaries with resume=%s", (resume) => {
     const options = ClaudeAdapterV2.makeClaudeQueryOptions({
       modelSelection: CLAUDE_TEST_MODEL_SELECTION,

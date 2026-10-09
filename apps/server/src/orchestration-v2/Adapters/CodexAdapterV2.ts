@@ -338,6 +338,7 @@ export const CodexProviderCapabilitiesV2 = {
   },
   runtimePolicy: {
     enforcement: "native",
+    supportsAdditionalWorkspaceRoots: true,
   },
 } satisfies OrchestrationV2ProviderCapabilities;
 
@@ -740,10 +741,24 @@ export function buildCodexTurnStartParams(input: {
       input.runtimePolicy.approvalPolicy === undefined
         ? runtimeModeDefaults.approvalPolicy
         : yield* decodeTurnApprovalPolicy(input.runtimePolicy.approvalPolicy);
-    const sandboxPolicy =
+    const selectedSandboxPolicy =
       input.runtimePolicy.sandboxPolicy === undefined
         ? runtimeModeDefaults.sandboxPolicy
         : yield* decodeTurnSandboxPolicy(input.runtimePolicy.sandboxPolicy);
+    const sandboxPolicy =
+      selectedSandboxPolicy?.type === "workspaceWrite" &&
+      input.runtimePolicy.additionalDirectories?.length
+        ? {
+            ...selectedSandboxPolicy,
+            writableRoots: [
+              ...new Set([
+                ...(selectedSandboxPolicy.writableRoots ?? []),
+                ...(input.runtimePolicy.cwd === null ? [] : [input.runtimePolicy.cwd]),
+                ...input.runtimePolicy.additionalDirectories,
+              ]),
+            ],
+          }
+        : selectedSandboxPolicy;
     const selectedEffort = getModelSelectionStringOptionValue(
       input.modelSelection,
       "reasoningEffort",

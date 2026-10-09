@@ -45,6 +45,10 @@ const ANTIGRAVITY_PROVIDER = ProviderDriverKind.make("antigravity");
 
 const AntigravityProviderCapabilitiesV2 = {
   ...AcpProviderCapabilitiesV2,
+  runtimePolicy: {
+    ...AcpProviderCapabilitiesV2.runtimePolicy,
+    supportsAdditionalWorkspaceRoots: true,
+  },
   sessions: {
     ...AcpProviderCapabilitiesV2.sessions,
     supportsModelSwitchInSession: true,
@@ -126,8 +130,14 @@ export function makeAntigravityAcpAdapterFlavor(
   // The attachments dir grant lets the agent read pasted files at the paths
   // the turn text references. It is a leaf directory of uploads. A session
   // without a workspace gets no workspace root rather than the server's cwd.
-  const antigravityClientFileRoots = (cwd: string | null) =>
-    cwd === null ? [options.host.paths.attachmentsDir] : [cwd, options.host.paths.attachmentsDir];
+  const antigravityClientFileRoots = (
+    cwd: string | null,
+    additionalDirectories: ReadonlyArray<string> = [],
+  ) => [
+    ...(cwd === null ? [] : [cwd]),
+    ...additionalDirectories,
+    options.host.paths.attachmentsDir,
+  ];
   const makeRuntime = (input: AcpAdapterV2RuntimeInput) =>
     Effect.gen(function* () {
       // AcpAdapterV2 owns the runtime scope; sign-in and sign-out stop the
@@ -139,7 +149,10 @@ export function makeAntigravityAcpAdapterFlavor(
           options.makeRuntime({
             ...input,
             clientFileSystem: true,
-            additionalDirectories: [options.host.paths.attachmentsDir],
+            additionalDirectories: [
+              ...(input.runtimePolicy.additionalDirectories ?? []),
+              options.host.paths.attachmentsDir,
+            ],
           }),
         )
         .pipe(Effect.provideService(Scope.Scope, scope));
@@ -186,18 +199,18 @@ export function makeAntigravityAcpAdapterFlavor(
       }),
     sessionModeForPolicy: (policy) => antigravityPermissionMode(policy.runtimeMode),
     clientFileSystem: {
-      readTextFile: (request, cwd) =>
+      readTextFile: (request, cwd, additionalDirectories) =>
         readAntigravityClientTextFile({
           fileSystem: options.fileSystem,
           path: options.path,
-          allowedRoots: antigravityClientFileRoots(cwd),
+          allowedRoots: antigravityClientFileRoots(cwd, additionalDirectories),
           request,
         }),
-      writeTextFile: (request, cwd) =>
+      writeTextFile: (request, cwd, additionalDirectories) =>
         writeAntigravityClientTextFile({
           fileSystem: options.fileSystem,
           path: options.path,
-          allowedRoots: antigravityClientFileRoots(cwd),
+          allowedRoots: antigravityClientFileRoots(cwd, additionalDirectories),
           request,
         }),
     },

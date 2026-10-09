@@ -2550,6 +2550,14 @@ describe("OpenCodeAdapterV2", () => {
   });
 
   it("maps runtime modes to safe OpenCode permission rules", () => {
+    const workspaceRules = openCodePermissionRules(
+      runtimePolicy("approval-required", { additionalDirectories: ["/external"] }),
+    );
+    assert.includeDeepMembers(workspaceRules, [
+      { permission: "external_directory", pattern: "/external/*", action: "allow" },
+    ]);
+    assert.equal(permissionAction(workspaceRules, "edit"), "ask");
+    assert.equal(permissionAction(workspaceRules, "bash"), "ask");
     const approvalRequired = openCodePermissionRules(runtimePolicy("approval-required"));
     assert.equal(permissionAction(approvalRequired, "read"), "allow");
     assert.equal(permissionAction(approvalRequired, "edit"), "ask");
