@@ -526,6 +526,7 @@ export function buildBrowseGroups(input: {
   canBrowseUp: boolean;
   upIcon: ReactNode;
   directoryIcon: ReactNode;
+  workspaceIcon: ReactNode;
   browseUp: () => void | Promise<void>;
   browseTo: (name: string) => void | Promise<void>;
 }): CommandPaletteGroup[] {
@@ -551,7 +552,7 @@ export function buildBrowseGroups(input: {
       value: `browse:${entry.fullPath}`,
       searchTerms: [input.browseQuery, entry.fullPath, entry.name],
       title: entry.name,
-      icon: input.directoryIcon,
+      icon: entry.kind === "workspace" ? input.workspaceIcon : input.directoryIcon,
       keepOpen: true,
       run: async () => {
         await input.browseTo(entry.name);

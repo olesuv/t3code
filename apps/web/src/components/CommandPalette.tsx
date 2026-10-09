@@ -2866,6 +2866,7 @@ function OpenCommandPaletteDialog(props: {
     canBrowseUp,
     upIcon: <CornerLeftUpIcon className={ITEM_ICON_CLASS} />,
     directoryIcon: <FolderIcon className={ITEM_ICON_CLASS} />,
+    workspaceIcon: <FileJsonIcon className={ITEM_ICON_CLASS} />,
     browseUp,
     browseTo,
   });

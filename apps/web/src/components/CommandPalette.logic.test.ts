@@ -721,6 +721,7 @@ describe("buildBrowseGroups", () => {
       canBrowseUp: false,
       upIcon: null,
       directoryIcon: null,
+      workspaceIcon: null,
       browseUp: vi.fn(),
       browseTo,
     });
