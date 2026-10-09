@@ -121,16 +121,19 @@ export function resolveProjectPathForDispatch(value: string, cwd?: string | null
   );
 }
 
-export function findProjectByPath<T extends { workspaceRoot?: string; cwd?: string }>(
-  projects: ReadonlyArray<T>,
-  candidatePath: string,
-): T | undefined {
+export function findProjectByPath<
+  T extends {
+    workspaceRoot?: string;
+    cwd?: string;
+    workspace?: { readonly filePath: string } | null | undefined;
+  },
+>(projects: ReadonlyArray<T>, candidatePath: string): T | undefined {
   const normalizedCandidate = normalizeProjectPathForComparison(candidatePath);
   if (normalizedCandidate.length === 0) {
     return undefined;
   }
   return projects.find((project) => {
-    const cwd = project.workspaceRoot ?? project.cwd;
+    const cwd = project.workspace?.filePath ?? project.workspaceRoot ?? project.cwd;
     return cwd ? normalizeProjectPathForComparison(cwd) === normalizedCandidate : false;
   });
 }

@@ -1,4 +1,5 @@
 import { OrchestrationMessageContext } from "./composerContext.ts";
+import { CodeWorkspace, WorkspaceRepository } from "./codeWorkspace.ts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import * as SchemaAST from "effect/SchemaAST";
@@ -304,6 +305,7 @@ export const OrchestrationV2RuntimePolicyCapabilities = Schema.Struct({
    * execution is not confined, so sandbox guarantees are reduced.
    */
   enforcement: Schema.Literals(["native", "client-boundary"]),
+  supportsAdditionalWorkspaceRoots: Schema.optional(Schema.Boolean),
 });
 export type OrchestrationV2RuntimePolicyCapabilities =
   typeof OrchestrationV2RuntimePolicyCapabilities.Type;
@@ -365,6 +367,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
+  workspace: Schema.optional(Schema.NullOr(CodeWorkspace)),
   title: TrimmedNonEmptyString,
   providerInstanceId: ProviderInstanceId,
   modelSelection: ModelSelection,
@@ -719,6 +722,7 @@ export const OrchestrationV2CheckpointScope = Schema.Struct({
   ordinalWithinParent: NonNegativeInt,
   advancesAppRunCount: Schema.Boolean,
   cwd: TrimmedNonEmptyString,
+  workspaceRepositories: Schema.optional(Schema.Array(WorkspaceRepository)),
   createdAt: Schema.DateTimeUtc,
 });
 export type OrchestrationV2CheckpointScope = typeof OrchestrationV2CheckpointScope.Type;
@@ -1193,11 +1197,21 @@ export type OrchestrationV2PlanArtifact = typeof OrchestrationV2PlanArtifact.Typ
 
 export const OrchestrationV2CheckpointFileSummary = Schema.Struct({
   path: TrimmedNonEmptyString,
+  repositoryId: Schema.optional(TrimmedNonEmptyString),
   kind: TrimmedNonEmptyString,
   additions: NonNegativeInt,
   deletions: NonNegativeInt,
 });
 export type OrchestrationV2CheckpointFileSummary = typeof OrchestrationV2CheckpointFileSummary.Type;
+
+export const OrchestrationV2RepositoryCheckpoint = Schema.Struct({
+  repository: WorkspaceRepository,
+  ref: CheckpointRef,
+  status: Schema.Literals(["ready", "missing", "error"]),
+  summaryError: Schema.optional(Schema.Literals(["baseline-missing", "diff-failed"])),
+  files: Schema.Array(OrchestrationV2CheckpointFileSummary),
+});
+export type OrchestrationV2RepositoryCheckpoint = typeof OrchestrationV2RepositoryCheckpoint.Type;
 
 export const OrchestrationV2Checkpoint = Schema.Struct({
   id: CheckpointId,
@@ -1209,7 +1223,8 @@ export const OrchestrationV2Checkpoint = Schema.Struct({
   ordinalWithinScope: NonNegativeInt,
   appRunOrdinal: Schema.NullOr(PositiveInt),
   ref: CheckpointRef,
-  status: Schema.Literals(["ready", "missing", "error", "stale"]),
+  status: Schema.Literals(["ready", "partial", "missing", "error", "stale"]),
+  repositories: Schema.optional(Schema.Array(OrchestrationV2RepositoryCheckpoint)),
   files: Schema.Array(OrchestrationV2CheckpointFileSummary),
   capturedAt: Schema.DateTimeUtc,
 });
@@ -1837,6 +1852,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
   projectId: ProjectId,
+  workspace: Schema.optional(Schema.NullOr(CodeWorkspace)),
   title: Schema.String,
   providerInstanceId: ProviderInstanceId,
   modelSelection: ModelSelection,

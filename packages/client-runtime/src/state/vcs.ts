@@ -35,6 +35,14 @@ import {
 
 const OFFLINE_BRANCH_LIST_LIMIT = 100;
 const VCS_REFS_IDLE_TTL_MS = 30_000;
+
+/** Each client chooses a checkout explicitly; new workspace threads start without one. */
+export const workspaceRepositorySelectionAtom = Atom.family((threadKey: string) =>
+  Atom.make<string | null>(null).pipe(
+    Atom.keepAlive,
+    Atom.withLabel(`workspace-repository:${threadKey}`),
+  ),
+);
 // Rows keep the last status they rendered, so the live stream only needs a
 // short grace period when virtualization or scrolling releases its consumer.
 const VCS_STATUS_IDLE_TTL_MS = 10_000;

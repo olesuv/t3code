@@ -54,6 +54,7 @@ const makeScope = (
 });
 
 interface ThreadFixture {
+  readonly workspace?: OrchestrationV2ThreadProjection["thread"]["workspace"];
   readonly branch?: string | null;
   readonly worktreePath?: string | null;
   readonly archivedAt?: string | null;
@@ -389,6 +390,24 @@ const runStatus = (harness: ReturnType<typeof makeHarness>) =>
   }).pipe(Effect.provide(harness.layer));
 
 describe("t3_worktree_handoff", () => {
+  it.effect("rejects workspace handoff before creating a worktree", () => {
+    const harness = makeHarness({
+      thread: {
+        workspace: {
+          filePath: "/repo/team.code-workspace",
+          workspaceRoot,
+          folders: [],
+          repositories: [],
+        },
+      },
+    });
+    return Effect.gen(function* () {
+      const exit = yield* Effect.exit(runHandoff(harness, { branch: "feature/workspace" }));
+      expectTypedFailure(exit, { _tag: "WorktreeMcpFailure", code: "invalid_request" });
+      expect(harness.createWorktree).not.toHaveBeenCalled();
+    });
+  });
+
   it.effect("creates a worktree from the current branch and re-points the thread", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

@@ -31,6 +31,9 @@ export const projectMutationOperation = Effect.fn("projectMutationOperation")(fu
         projectId: mutation.projectId,
         ...(mutation.title === undefined ? {} : { title: mutation.title }),
         ...(mutation.workspaceRoot === undefined ? {} : { workspaceRoot: mutation.workspaceRoot }),
+        ...(mutation.reloadWorkspace === undefined
+          ? {}
+          : { reloadWorkspace: mutation.reloadWorkspace }),
         ...(mutation.defaultModelSelection === undefined
           ? {}
           : { defaultModelSelection: mutation.defaultModelSelection }),

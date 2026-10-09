@@ -1,12 +1,16 @@
 import * as Schema from "effect/Schema";
-import { TrimmedNonEmptyString } from "./baseSchemas.ts";
+import { ThreadId, TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { GitCommandError } from "./git.ts";
+import { WorkspaceRepository } from "./codeWorkspace.ts";
 import { VcsError } from "./vcs.ts";
 
 export const ReviewDiffPreviewInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
+  threadId: Schema.optionalKey(ThreadId),
+  repositoryId: Schema.optionalKey(TrimmedNonEmptyString),
   baseRef: Schema.optional(TrimmedNonEmptyString),
   ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
+  summaryOnly: Schema.optionalKey(Schema.Boolean),
   file: Schema.optionalKey(
     Schema.Struct({
       path: Schema.NonEmptyString,
@@ -44,6 +48,8 @@ export type ReviewDiffPreviewSource = typeof ReviewDiffPreviewSource.Type;
 
 export const ReviewDiffFileContentsInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
+  threadId: Schema.optionalKey(ThreadId),
+  repositoryId: Schema.optionalKey(TrimmedNonEmptyString),
   sourceKind: ReviewDiffPreviewSourceKind,
   changeType: Schema.Literals(["change", "rename-pure", "rename-changed", "new", "deleted"]),
   baseRef: Schema.NullOr(TrimmedNonEmptyString),
@@ -59,10 +65,18 @@ export const ReviewDiffFileContentsResult = Schema.Struct({
 });
 export type ReviewDiffFileContentsResult = typeof ReviewDiffFileContentsResult.Type;
 
+export const ReviewRepositoryDiff = Schema.Struct({
+  repository: WorkspaceRepository,
+  sources: Schema.Array(ReviewDiffPreviewSource),
+  error: Schema.optionalKey(Schema.String),
+});
+export type ReviewRepositoryDiff = typeof ReviewRepositoryDiff.Type;
+
 export const ReviewDiffPreviewResult = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   generatedAt: Schema.DateTimeUtc,
   sources: Schema.Array(ReviewDiffPreviewSource),
+  repositories: Schema.optionalKey(Schema.Array(ReviewRepositoryDiff)),
 });
 export type ReviewDiffPreviewResult = typeof ReviewDiffPreviewResult.Type;
 

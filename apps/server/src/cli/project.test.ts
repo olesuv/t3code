@@ -443,3 +443,31 @@ it.layer(NodeServices.layer)("project lookup with unavailable workspaces", (it) 
     }),
   );
 });
+
+it.effect("adds distinct workspace files and targets them by canonical file path", () =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const temporaryRoot = yield* fs.makeTempDirectoryScoped({ prefix: "t3-workspace-cli-" });
+    const root = yield* fs.realPath(temporaryRoot);
+    const baseDir = NodePath.join(root, "state");
+    const first = NodePath.join(root, "first.code-workspace");
+    const second = NodePath.join(root, "second.code-workspace");
+    yield* fs.writeFileString(first, '{ "folders": [{ "path": ".", "name": "Root" }] }');
+    yield* fs.writeFileString(second, '{ "folders": [{ "path": "." }] }');
+    yield* runCli(["project", "add", first, "--base-dir", baseDir]);
+    yield* runCli(["project", "add", second, "--base-dir", baseDir]);
+    const projects = (yield* readProjects(baseDir)).projects;
+    assert.equal(projects.length, 2);
+    assert.deepEqual(
+      projects.map((project) => project.workspace?.filePath).sort(),
+      [first, second].sort(),
+    );
+    yield* runCli(["project", "rename", first, "Renamed workspace", "--base-dir", baseDir]);
+    assert.equal(
+      (yield* readProjects(baseDir)).projects.find(
+        (project) => project.workspace?.filePath === first,
+      )?.title,
+      "Renamed workspace",
+    );
+  }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+);

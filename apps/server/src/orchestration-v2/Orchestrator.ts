@@ -115,7 +115,11 @@ import * as RunExecutionService from "./RunExecutionService.ts";
 import { ProviderSessionManagerV2 } from "./ProviderSessionManager.ts";
 import { ProviderSwitchServiceV2 } from "./ProviderSwitchService.ts";
 import { isAutomaticCompletionRun, queuedRunsInDeliveryOrder } from "./QueuedRunOrder.ts";
-import { RuntimePolicyV2 } from "./RuntimePolicy.ts";
+import {
+  RuntimePolicyV2,
+  WorkspaceProviderRootsUnsupportedError,
+  validateWorkspaceProviderRoots,
+} from "./RuntimePolicy.ts";
 import {
   makeSubagentChildThread,
   subagentResultForRun,
@@ -253,6 +257,7 @@ export function canReplayCommandReceipt(
 }
 
 export const OrchestratorV2Error = Schema.Union([
+  WorkspaceProviderRootsUnsupportedError,
   OrchestratorDispatchError,
   OrchestratorCommandRejectedError,
   OrchestratorProjectionError,
@@ -1553,6 +1558,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
             Effect.flatMap((resolvedRuntimePolicy) =>
               checkpointService.prepareRootRunScope({
                 threadId,
+                workspaceRepositories: projection.thread.workspace?.repositories,
                 runId: queuedRun.id,
                 rootNodeId: rootNode.id,
                 providerThreadId: queuedProviderThread.id,
@@ -2193,11 +2199,22 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
 
     const now = yield* DateTime.now;
     const emitEvent = emit(events, command);
+    const workspace =
+      Option.getOrUndefined(yield* projects.get(command.projectId).pipe(mapDispatchError(command)))
+        ?.workspace ?? null;
+    if (workspace && command.worktreePath !== null) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Workspace projects use existing checkouts; worktree creation is not supported.",
+      });
+    }
     const thread: OrchestrationV2AppThread = {
       createdBy: command.createdBy,
       creationSource: command.creationSource,
       id: command.threadId,
       projectId: command.projectId,
+      workspace,
       title: command.title,
       providerInstanceId: command.modelSelection.instanceId,
       modelSelection: command.modelSelection,
@@ -2468,6 +2485,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Thread ${command.threadId} was stopped.`,
         });
       }
+    }
+    if (
+      thread.workspace &&
+      command.type === "thread.metadata.update" &&
+      command.worktreePath != null
+    ) {
+      return yield* new OrchestratorDispatchError({
+        commandId: command.commandId,
+        commandType: command.type,
+        cause: "Workspace threads do not support worktree creation or handoff.",
+      });
     }
     if (
       command.type === "thread.metadata.update" &&
@@ -4248,6 +4276,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       const checkpointScope = yield* checkpointService
         .prepareRootRunScope({
           threadId: input.command.threadId,
+          workspaceRepositories: input.projection.thread.workspace?.repositories,
           runId: targetRun.id,
           rootNodeId: nextRootNodeId,
           providerThreadId: restartProviderThread.id,
@@ -4641,6 +4670,17 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         projection = yield* getProjectionWithPendingEvents(command.threadId, events);
       }
       const modelSelection = command.modelSelection ?? projection.thread.modelSelection;
+      if (projection.thread.workspace) {
+        const adapter = yield* providerAdapters
+          .get(modelSelection.instanceId)
+          .pipe(mapDispatchError(command));
+        const capabilities = yield* adapter.getCapabilities().pipe(mapDispatchError(command));
+        yield* validateWorkspaceProviderRoots({
+          workspace: projection.thread.workspace,
+          providerInstanceId: modelSelection.instanceId,
+          capabilities,
+        });
+      }
       let dispatchMode = resolveMessageDispatchIntent(
         projection,
         command.dispatchMode,
@@ -4926,6 +4966,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 Effect.flatMap((resolvedRuntimePolicy) =>
                   checkpointService.prepareRootRunScope({
                     threadId: command.threadId,
+                    workspaceRepositories: projection.thread.workspace?.repositories,
                     runId,
                     rootNodeId,
                     providerThreadId: queuedProviderThread.id,
@@ -5284,6 +5325,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                   Effect.flatMap((resolvedRuntimePolicy) =>
                     checkpointService.prepareRootRunScope({
                       threadId: command.threadId,
+                      workspaceRepositories: projection.thread.workspace?.repositories,
                       runId,
                       rootNodeId,
                       providerThreadId,
@@ -5968,6 +6010,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .prepareRootRunScope({
           threadId: command.threadId,
           runId,
+          workspaceRepositories: projection.thread.workspace?.repositories,
           rootNodeId,
           providerThreadId: providerThread.id,
           cwd:
@@ -7860,6 +7903,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
         .prepareRootRunScope({
           threadId: command.threadId,
           runId: state.run.id,
+          workspaceRepositories: projection.thread.workspace?.repositories,
           rootNodeId: state.rootNode.id,
           providerThreadId: state.providerThread.id,
           cwd: resolvedRuntimePolicy.cwd ?? projection.thread.worktreePath ?? process.cwd(),
@@ -9169,7 +9213,10 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           cause: `Checkpoint ${command.checkpointId} was not found.`,
         });
       }
-      if (targetCheckpoint.status !== "ready") {
+      if (
+        targetCheckpoint.status !== "ready" &&
+        !(projection.thread.workspace && command.restoreFiles === false)
+      ) {
         return yield* new OrchestratorDispatchError({
           commandId: command.commandId,
           commandType: command.type,

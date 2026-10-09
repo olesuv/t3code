@@ -185,14 +185,18 @@ interface AutoBootstrapWelcomeTargets {
 }
 
 export const autoPullProjects = Effect.fn("autoPullProjects")(function* (
-  projects: ReadonlyArray<Pick<Project, "id" | "workspaceRoot" | "autoPull">>,
+  projects: ReadonlyArray<Pick<Project, "id" | "workspaceRoot" | "autoPull" | "workspace">>,
   settings = DEFAULT_SERVER_SETTINGS,
 ) {
   const git = yield* GitVcsDriver.GitVcsDriver;
   const workspaceRoots = [
     ...new Set(
       projects
-        .filter((project) => resolveProjectSettings(settings, project.id).settings.defaultAutoPull)
+        .filter(
+          (project) =>
+            !project.workspace &&
+            resolveProjectSettings(settings, project.id).settings.defaultAutoPull,
+        )
         .map((project) => project.workspaceRoot),
     ),
   ];
@@ -274,8 +278,11 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
     const { project } = yield* projects.bootstrap({
       commandId: CommandId.make(yield* randomUUID),
       projectId: ProjectId.make(yield* randomUUID),
-      title: path.basename(serverConfig.cwd) || "project",
-      workspaceRoot: serverConfig.cwd,
+      title:
+        path
+          .basename(serverConfig.bootstrapWorkspaceFile ?? serverConfig.cwd)
+          .replace(/\.code-workspace$/, "") || "project",
+      workspaceRoot: serverConfig.bootstrapWorkspaceFile ?? serverConfig.cwd,
     });
     const shell = yield* threads.getShellSnapshot();
     const existingThread = shell.threads.find(

@@ -1,5 +1,6 @@
 import {
   type ApplicationProjectEvent,
+  CodeWorkspace,
   IsoDateTime,
   ModelSelection,
   type OrchestrationProjectShell,
@@ -33,6 +34,7 @@ export const ProjectRow = Schema.Struct({
   projectId: ProjectId,
   title: Schema.String,
   workspaceRoot: Schema.String,
+  workspace: Schema.optional(Schema.NullOr(CodeWorkspace)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   defaultThreadEnvMode: Schema.NullOr(ThreadEnvMode),
   autoPull: Schema.Boolean,
@@ -47,6 +49,7 @@ export type ProjectRow = typeof ProjectRow.Type;
 
 const ProjectDbRow = Schema.Struct({
   ...ProjectRow.fields,
+  workspace: Schema.NullOr(Schema.fromJsonString(CodeWorkspace)),
   defaultModelSelection: Schema.NullOr(Schema.fromJsonString(ModelSelection)),
   autoPull: Schema.BooleanFromBit,
   projectIcon: Schema.NullOr(Schema.fromJsonString(StoredProjectIcon)),
@@ -59,6 +62,7 @@ function toShell(row: ProjectRow): OrchestrationProjectShell {
     id: row.projectId,
     title: row.title,
     workspaceRoot: row.workspaceRoot,
+    workspace: row.workspace ?? null,
     repositoryIdentity: null,
     defaultModelSelection: row.defaultModelSelection,
     defaultThreadEnvMode: row.defaultThreadEnvMode,
@@ -87,6 +91,7 @@ export class ProjectStoreV2 extends Context.Service<
     /** Workspace roots match by exact string; callers normalize before asking. */
     readonly findActiveByWorkspaceRoot: (
       workspaceRoot: string,
+      workspaceFilePath?: string,
     ) => Effect.Effect<Option.Option<ProjectRow>, ProjectStoreV2Error>;
     /** An active project's shell without enrichment such as repository identity. */
     readonly getShell: (
@@ -109,6 +114,7 @@ export const make = Effect.gen(function* () {
       projectId: Schema.optional(ProjectId),
       projectIds: Schema.optional(Schema.Array(ProjectId)),
       workspaceRoot: Schema.optional(Schema.String),
+      workspaceFilePath: Schema.optional(Schema.String),
       includeDeleted: Schema.Boolean,
     }),
     Result: ProjectDbRow,
@@ -117,6 +123,7 @@ export const make = Effect.gen(function* () {
         project_id AS "projectId",
         title,
         workspace_root AS "workspaceRoot",
+        workspace_json AS "workspace",
         default_model_selection_json AS "defaultModelSelection",
         default_thread_env_mode AS "defaultThreadEnvMode",
         auto_pull AS "autoPull",
@@ -133,20 +140,24 @@ export const make = Effect.gen(function* () {
         ...(request.projectIds === undefined ? [] : [sql.in("project_id", request.projectIds)]),
         ...(request.workspaceRoot === undefined
           ? []
-          : [sql`workspace_root = ${request.workspaceRoot}`]),
+          : request.workspaceFilePath === undefined
+            ? [sql`workspace_root = ${request.workspaceRoot} AND workspace_file_path IS NULL`]
+            : [sql`workspace_file_path = ${request.workspaceFilePath}`]),
       ])}
       ORDER BY created_at ASC, project_id ASC
     `,
   });
 
   const upsertRow = (row: ProjectRow) =>
-    encodeRow(row).pipe(
+    encodeRow({ ...row, workspace: row.workspace ?? null }).pipe(
       Effect.flatMap(
         (encoded) => sql`
           INSERT INTO projection_projects (
             project_id,
             title,
             workspace_root,
+            workspace_json,
+            workspace_file_path,
             default_model_selection_json,
             default_thread_env_mode,
             auto_pull,
@@ -161,6 +172,8 @@ export const make = Effect.gen(function* () {
             ${encoded.projectId},
             ${encoded.title},
             ${encoded.workspaceRoot},
+            ${encoded.workspace},
+            ${row.workspace?.filePath ?? null},
             ${encoded.defaultModelSelection},
             ${encoded.defaultThreadEnvMode},
             ${encoded.autoPull},
@@ -175,6 +188,8 @@ export const make = Effect.gen(function* () {
           DO UPDATE SET
             title = excluded.title,
             workspace_root = excluded.workspace_root,
+            workspace_json = excluded.workspace_json,
+            workspace_file_path = excluded.workspace_file_path,
             default_model_selection_json = excluded.default_model_selection_json,
             default_thread_env_mode = excluded.default_thread_env_mode,
             auto_pull = excluded.auto_pull,
@@ -207,8 +222,13 @@ export const make = Effect.gen(function* () {
 
   const findActiveByWorkspaceRoot: ProjectStoreV2["Service"]["findActiveByWorkspaceRoot"] = (
     workspaceRoot,
+    workspaceFilePath,
   ) =>
-    selectRows({ workspaceRoot, includeDeleted: false }).pipe(
+    selectRows({
+      workspaceRoot,
+      ...(workspaceFilePath === undefined ? {} : { workspaceFilePath }),
+      includeDeleted: false,
+    }).pipe(
       Effect.map((rows) => Option.fromUndefinedOr(rows[0])),
       mapError("findActiveByWorkspaceRoot"),
     );
@@ -221,6 +241,7 @@ export const make = Effect.gen(function* () {
           projectId: payload.projectId,
           title: payload.title,
           workspaceRoot: payload.workspaceRoot,
+          workspace: payload.workspace ?? null,
           defaultModelSelection: payload.defaultModelSelection,
           defaultThreadEnvMode: payload.defaultThreadEnvMode ?? null,
           autoPull: false,
@@ -247,6 +268,7 @@ export const make = Effect.gen(function* () {
         ...row,
         ...(payload.title === undefined ? {} : { title: payload.title }),
         ...(payload.workspaceRoot === undefined ? {} : { workspaceRoot: payload.workspaceRoot }),
+        ...(payload.workspace === undefined ? {} : { workspace: payload.workspace }),
         ...(payload.defaultModelSelection === undefined
           ? {}
           : { defaultModelSelection: payload.defaultModelSelection }),

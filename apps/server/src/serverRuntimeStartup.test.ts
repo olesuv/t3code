@@ -188,7 +188,22 @@ it.effect("automatic pull only updates enabled, behind, clean default-branch che
 
     pulled.length = 0;
     yield* ServerRuntimeStartup.autoPullProjects(
-      [project("/inherited"), project("/opted-out"), project("/dirty")],
+      [
+        project("/inherited"),
+        project("/opted-out"),
+        project("/dirty"),
+        {
+          id: ProjectId.make("workspace"),
+          workspaceRoot: "/workspace-meta",
+          autoPull: false,
+          workspace: {
+            filePath: "/workspace-meta/team.code-workspace",
+            workspaceRoot: "/workspace-meta",
+            folders: [],
+            repositories: [],
+          },
+        },
+      ],
       { ...overrides({ "/opted-out": false }), defaultAutoPull: true },
     ).pipe(Effect.provideService(GitVcsDriver.GitVcsDriver, git));
     assert.deepStrictEqual(pulled, ["/inherited"]);

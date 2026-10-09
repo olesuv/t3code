@@ -21,6 +21,7 @@ import { Argument, Command, Flag, GlobalFlag } from "effect/cli";
 import { FetchHttpClient, HttpClient, HttpClientError } from "effect/http";
 import * as HttpApiClient from "effect/http-api/HttpApiClient";
 
+import { expandHomePath } from "../os-jank.ts";
 import * as EnvironmentAuth from "../auth/EnvironmentAuth.ts";
 
 import * as ServerConfig from "../config.ts";
@@ -234,6 +235,11 @@ const makeLiveServerClient = (origin: string) =>
 const normalizeWorkspaceRootForProjectCommand = Effect.fn(
   "normalizeWorkspaceRootForProjectCommand",
 )(function* (workspaceRoot: string) {
+  if (workspaceRoot.trim().endsWith(".code-workspace")) {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    return yield* fs.realPath(path.resolve(yield* expandHomePath(workspaceRoot.trim())));
+  }
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   return yield* workspacePaths.normalizeWorkspaceRoot(workspaceRoot);
 });
@@ -288,7 +294,9 @@ const findActiveProjectTarget = Effect.fn("findActiveProjectTarget")(function* (
 
   // A stored workspace path still identifies its project after the directory is gone.
   const exactWorkspaceMatch = activeProjects.find(
-    (project) => project.workspaceRoot === (normalizedWorkspaceRoot ?? trimmedIdentifier),
+    (project) =>
+      (project.workspace?.filePath ?? project.workspaceRoot) ===
+      (normalizedWorkspaceRoot ?? trimmedIdentifier),
   );
 
   const resolved = exactWorkspaceMatch;
@@ -445,7 +453,7 @@ const runProjectMutation = Effect.fn("runProjectMutation")(function* (
 const projectAddCommand = Command.make("add", {
   ...projectLocationFlags,
   workspaceRoot: Argument.String("path").pipe(
-    Argument.withDescription("Workspace root to add as a project."),
+    Argument.withDescription("Directory or .code-workspace file to add as a project."),
   ),
   title: Flag.String("title").pipe(Flag.withDescription("Optional project title."), Flag.optional),
 }).pipe(
@@ -464,7 +472,9 @@ const projectAddCommand = Command.make("add", {
       }) {
         const workspaceRoot = yield* normalizeWorkspaceRootForProjectCommand(flags.workspaceRoot);
         const existingProject = snapshot.projects.find(
-          (project) => project.deletedAt === null && project.workspaceRoot === workspaceRoot,
+          (project) =>
+            project.deletedAt === null &&
+            (project.workspace?.filePath ?? project.workspaceRoot) === workspaceRoot,
         );
         if (existingProject) {
           return yield* new ProjectAlreadyExistsError({

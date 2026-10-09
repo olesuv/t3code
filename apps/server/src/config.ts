@@ -86,6 +86,7 @@ export class ServerConfig extends Context.Service<
     readonly port: number;
     readonly host: string | undefined;
     readonly cwd: string;
+    readonly bootstrapWorkspaceFile?: string;
     readonly baseDir: string;
     readonly staticDir: string | undefined;
     readonly devUrl: URL | undefined;

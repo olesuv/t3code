@@ -4,6 +4,8 @@ import { CommandId, type Project, ProjectId, ProviderInstanceId } from "@t3tools
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
@@ -20,6 +22,8 @@ import * as RuntimeLayer from "../orchestration-v2/runtimeLayer.ts";
 import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecutor.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import * as CodeWorkspaceLoader from "./CodeWorkspaceLoader.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as ProjectFaviconResolver from "./ProjectFaviconResolver.ts";
 import * as ProjectService from "./ProjectService.ts";
@@ -61,13 +65,14 @@ const layerTestFor = (
     Layer.provideMerge(projectMetadataLayer),
     Layer.provideMerge(SqlitePersistence.layerMemory),
     Layer.provide(ServerConfig.layerTest(process.cwd(), { prefix: "project-service-test-" })),
-    Layer.provide(NodeServices.layer),
+    Layer.provideMerge(NodeServices.layer),
   );
 
 const layerTest = layerTestFor(layerMetadata);
 
 /** Every dependency of ProjectService.make, so a test can swap one of them. */
 const layerProjectServiceDependencies = Layer.mergeAll(
+  CodeWorkspaceLoader.layer.pipe(Layer.provide(ProcessRunner.layer)),
   RuntimeLayer.layerEventSink,
   ProjectStore.layer,
   ProjectionStore.layer,
@@ -97,6 +102,90 @@ const waitForProject = Effect.fn("ProjectServiceTest.waitForProject")(function* 
 });
 
 it.layer(layerTest)("ProjectService", (it) => {
+  it.effect(
+    "opens workspace files by canonical file identity and reloads only project metadata",
+    () =>
+      Effect.gen(function* () {
+        const service = yield* ProjectService.ProjectService;
+        const fs = yield* FileSystem.FileSystem;
+        const path = yield* Path.Path;
+        const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "project-workspace-" });
+        const root = yield* fs.realPath(temporary);
+        yield* fs.makeDirectory(path.join(root, "one"));
+        yield* fs.makeDirectory(path.join(root, "two"));
+        const firstFile = path.join(root, "first.code-workspace");
+        const secondFile = path.join(root, "second.code-workspace");
+        const alias = path.join(root, "alias.code-workspace");
+        for (const file of [firstFile, secondFile]) {
+          yield* fs.writeFileString(file, '{"folders": [{"name": "First", "path": "one"}]}');
+        }
+        yield* fs.symlink(firstFile, alias);
+        const firstId = ProjectId.make("workspace:first");
+        const opened = yield* service.bootstrap({
+          commandId: CommandId.make("workspace:open"),
+          projectId: firstId,
+          title: "First",
+          workspaceRoot: firstFile,
+        });
+        assert.isTrue(opened.created);
+        assert.equal(opened.project.workspaceRoot, root);
+        assert.equal(opened.project.workspace?.filePath, firstFile);
+        const reused = yield* service.bootstrap({
+          commandId: CommandId.make("workspace:alias"),
+          projectId: ProjectId.make("workspace:alias"),
+          title: "Alias",
+          workspaceRoot: alias,
+        });
+        assert.isFalse(reused.created);
+        assert.equal(reused.project.id, firstId);
+        const second = yield* service.create({
+          commandId: CommandId.make("workspace:second"),
+          projectId: ProjectId.make("workspace:second"),
+          title: "Second",
+          workspaceRoot: secondFile,
+        });
+        assert.notEqual(second.id, firstId);
+        assert.equal(second.workspaceRoot, root);
+        const directory = yield* service.create({
+          commandId: CommandId.make("workspace:directory"),
+          projectId: ProjectId.make("workspace:directory"),
+          title: "Directory",
+          workspaceRoot: root,
+        });
+        assert.isNull(directory.workspace);
+        assert.equal(Option.getOrThrow(yield* service.getByWorkspaceRoot(root)).id, directory.id);
+        yield* fs.writeFileString(firstFile, '{"folders": [{"path": "two"}]}');
+        assert.equal(
+          Option.getOrThrow(yield* service.getById(firstId)).workspace?.folders[0]?.name,
+          "First",
+        );
+        const reloaded = yield* service.update({
+          commandId: CommandId.make("workspace:reload"),
+          projectId: firstId,
+          reloadWorkspace: true,
+        });
+        assert.equal(reloaded.workspace?.folders[0]?.name, "two");
+        assert.equal(
+          Option.getOrThrow(yield* service.getById(second.id)).workspace?.folders[0]?.name,
+          "First",
+        );
+        const conflict = yield* service
+          .create({
+            commandId: CommandId.make("workspace:conflict"),
+            projectId: ProjectId.make("workspace:conflict"),
+            title: "Conflict",
+            workspaceRoot: alias,
+          })
+          .pipe(Effect.flip);
+        assert.equal(conflict._tag, "ProjectConflictError");
+        for (const projectId of [firstId, second.id, directory.id]) {
+          yield* service.delete({
+            commandId: CommandId.make(`workspace:cleanup:${projectId}`),
+            projectId,
+          });
+        }
+      }),
+  );
   it.effect("creates, updates, resolves, snapshots, and soft-deletes projects", () =>
     Effect.gen(function* () {
       const service = yield* ProjectService.ProjectService;

@@ -220,12 +220,13 @@ const ProjectionCheckpointContext = Schema.Struct({
   ),
   checkpoints: Schema.Array(
     OrchestrationV2CheckpointJsonSchema.mapFields(
-      ({ scopeId, runId, appRunOrdinal, status, ref }) => ({
+      ({ scopeId, runId, appRunOrdinal, status, ref, repositories }) => ({
         scopeId,
         runId,
         appRunOrdinal,
         status,
         ref,
+        repositories,
       }),
     ),
   ),
@@ -1435,6 +1436,7 @@ export function threadShellFromProjection(
     creationSource: projection.thread.creationSource,
     id: projection.thread.id,
     projectId: projection.thread.projectId,
+    workspace: projection.thread.workspace ?? null,
     title: projection.thread.title,
     providerInstanceId: projection.thread.providerInstanceId,
     modelSelection: projection.thread.modelSelection,
@@ -1703,6 +1705,7 @@ function shellFromState(input: {
     creationSource: input.state.thread.creationSource,
     id: input.state.thread.id,
     projectId: input.state.thread.projectId,
+    workspace: input.state.thread.workspace ?? null,
     title: input.state.thread.title,
     providerInstanceId: input.state.thread.providerInstanceId,
     modelSelection: input.state.thread.modelSelection,
@@ -4549,13 +4552,26 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
               sql`
               SELECT scope_id AS "scopeId", run_id AS "runId",
                 app_run_ordinal AS "appRunOrdinal", status,
-                json_extract(payload_json, '$.ref') AS ref
+                json_extract(payload_json, '$.ref') AS ref,
+                json_extract(payload_json, '$.repositories') AS repositories
               FROM orchestration_v2_projection_checkpoints
               WHERE thread_id = ${threadId}
               ORDER BY scope_id ASC, ordinal_within_scope ASC
             `,
             ]);
-            return yield* decodeCheckpointContext({ runs, checkpointScopes, checkpoints });
+            return yield* decodeCheckpointContext({
+              runs,
+              checkpointScopes,
+              checkpoints: checkpoints.map((row) => {
+                const { repositories, ...fields } = row;
+                return {
+                  ...fields,
+                  ...(typeof repositories === "string"
+                    ? { repositories: JSON.parse(repositories) }
+                    : {}),
+                };
+              }),
+            });
           }),
         )
         .pipe(
@@ -6354,12 +6370,13 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
               cwd,
             })),
             checkpoints: projection.checkpoints.map(
-              ({ scopeId, runId, appRunOrdinal, status, ref }) => ({
+              ({ scopeId, runId, appRunOrdinal, status, ref, repositories }) => ({
                 scopeId,
                 runId,
                 appRunOrdinal,
                 status,
                 ref,
+                ...(repositories === undefined ? {} : { repositories }),
               }),
             ),
           };

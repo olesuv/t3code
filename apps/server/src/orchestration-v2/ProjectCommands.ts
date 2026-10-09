@@ -1,5 +1,6 @@
 import {
   type CommandId,
+  type CodeWorkspace,
   type EventId,
   MAX_SCRIPT_ID_LENGTH,
   type ModelSelection,
@@ -22,6 +23,7 @@ export interface ProjectCreateCommand {
   readonly projectId: ProjectId;
   readonly title: string;
   readonly workspaceRoot: string;
+  readonly workspace?: CodeWorkspace | null;
   readonly scripts?: ReadonlyArray<ProjectScript>;
 }
 
@@ -31,6 +33,7 @@ export interface ProjectMetaUpdateCommand {
   readonly projectId: ProjectId;
   readonly title?: string;
   readonly workspaceRoot?: string;
+  readonly workspace?: CodeWorkspace | null;
   readonly defaultModelSelection?: ModelSelection | null;
   readonly defaultThreadEnvMode?: ThreadEnvMode | null;
   readonly autoPull?: boolean;
@@ -168,6 +171,7 @@ export function planProjectCommand(input: {
           projectId: command.projectId,
           title: command.title,
           workspaceRoot: command.workspaceRoot,
+          ...(command.workspace === undefined ? {} : { workspace: command.workspace }),
           // Project creation has no user model choice. Older clients sent an
           // automatic seed, but only a metadata update records an explicit default.
           defaultModelSelection: null,
@@ -183,6 +187,15 @@ export function planProjectCommand(input: {
     case "project.meta.update": {
       const project = activeProject;
       if (project === undefined) return missingProject();
+      const workspace = command.workspace === undefined ? project.workspace : command.workspace;
+      if (workspace && command.autoPull === true) {
+        return invariant("Workspace projects require an explicitly selected repository for pull.");
+      }
+      if (workspace && command.defaultThreadEnvMode === "worktree") {
+        return invariant(
+          "Workspace projects use existing checkouts; worktree creation is not supported.",
+        );
+      }
       if (
         command.projectIcon?.kind === "monogram" &&
         Array.from(monogramSegmenter.segment(command.projectIcon.text)).length > 2
@@ -213,6 +226,8 @@ export function planProjectCommand(input: {
           projectId: command.projectId,
           ...(command.title === undefined ? {} : { title: command.title }),
           ...(command.workspaceRoot === undefined ? {} : { workspaceRoot: command.workspaceRoot }),
+          ...(command.workspace === undefined ? {} : { workspace: command.workspace }),
+          ...(command.workspace ? { autoPull: false, defaultThreadEnvMode: "local" as const } : {}),
           ...(command.defaultModelSelection === undefined
             ? {}
             : { defaultModelSelection: command.defaultModelSelection }),

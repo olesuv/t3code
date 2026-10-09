@@ -153,6 +153,12 @@ const make = Effect.gen(function* () {
       );
 
     const projection = yield* loadThread(scope);
+    if (projection.thread.workspace) {
+      return yield* failure(
+        "invalid_request",
+        "Workspace threads use existing checkouts and do not support worktree handoff.",
+      );
+    }
     if (projection.thread.worktreePath !== null) {
       return yield* alreadyInWorktree(projection.thread.worktreePath);
     }

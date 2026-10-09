@@ -32,6 +32,8 @@ import * as ThreadCommandExecutor from "../orchestration-v2/ThreadCommandExecuto
 import { planThreadDeletion } from "../orchestration-v2/ThreadDeletion.ts";
 import * as ProjectEnrichmentService from "./ProjectEnrichmentService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import * as CodeWorkspaceLoader from "./CodeWorkspaceLoader.ts";
+import * as ProcessRunner from "../processRunner.ts";
 
 export interface ProjectCreateInput extends ProjectCreatePayload {
   readonly commandId: CommandId;
@@ -107,6 +109,7 @@ export type ProjectServiceError =
   | ProjectNotFoundError
   | ProjectConflictError
   | ProjectNotEmptyError
+  | CodeWorkspaceLoader.CodeWorkspaceLoadError
   | ProjectOperationError;
 
 export class ProjectService extends Context.Service<
@@ -128,7 +131,10 @@ export class ProjectService extends Context.Service<
     readonly getByWorkspaceRoot: (
       workspaceRoot: string,
       options?: { readonly includeDeleted?: boolean },
-    ) => Effect.Effect<Option.Option<Project>, ProjectOperationError>;
+    ) => Effect.Effect<
+      Option.Option<Project>,
+      ProjectOperationError | CodeWorkspaceLoader.CodeWorkspaceLoadError
+    >;
     readonly snapshot: Effect.Effect<ProjectSnapshot, ProjectOperationError>;
     /**
      * An active project's shell with its immediately available repository
@@ -148,6 +154,7 @@ export const make = Effect.gen(function* () {
   const projects = yield* ProjectStore.ProjectStoreV2;
   const projectEnrichment = yield* ProjectEnrichmentService.ProjectEnrichmentService;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
+  const workspaceLoader = yield* CodeWorkspaceLoader.CodeWorkspaceLoader;
   const threadProjections = yield* ProjectionStore.ProjectionStoreV2;
   const eventSink = yield* EventSink.EventSinkV2;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -165,6 +172,7 @@ export const make = Effect.gen(function* () {
     id: row.projectId,
     title: row.title,
     workspaceRoot: row.workspaceRoot,
+    workspace: row.workspace ?? null,
     repositoryIdentity: enrichment?.repositoryIdentity ?? null,
     faviconPath: row.faviconPath ?? enrichment?.faviconPath ?? null,
     defaultModelSelection: row.defaultModelSelection,
@@ -224,6 +232,8 @@ export const make = Effect.gen(function* () {
     const dispatchError = (cause: unknown) =>
       new ProjectOperationError({ operation: "dispatch-project-command", projectId, cause });
     const workspaceRoot = command.type === "project.delete" ? undefined : command.workspaceRoot;
+    const workspaceFilePath =
+      command.type === "project.delete" ? undefined : command.workspace?.filePath;
     const planAndCommit = Effect.gen(function* () {
       const project = Option.getOrUndefined(yield* readRow(projectId, { includeDeleted: true }));
       const workspaceOwner =
@@ -231,7 +241,7 @@ export const make = Effect.gen(function* () {
           ? undefined
           : Option.getOrUndefined(
               yield* projects
-                .findActiveByWorkspaceRoot(workspaceRoot)
+                .findActiveByWorkspaceRoot(workspaceRoot, workspaceFilePath)
                 .pipe(Effect.mapError(dispatchError)),
             );
       const now = yield* DateTime.now;
@@ -267,7 +277,7 @@ export const make = Effect.gen(function* () {
         projectId,
         workspaceRoot === undefined
           ? planAndCommit
-          : workspaceLocks.withLock(workspaceRoot, planAndCommit),
+          : workspaceLocks.withLock(workspaceFilePath ?? workspaceRoot, planAndCommit),
       )
       .pipe(Effect.mapError(dispatchError));
     if (receipt.projectId !== projectId || receipt.commandType !== command.type) {
@@ -317,17 +327,26 @@ export const make = Effect.gen(function* () {
   const getByWorkspaceRoot: ProjectService["Service"]["getByWorkspaceRoot"] = Effect.fn(
     "ProjectService.getByWorkspaceRoot",
   )(function* (workspaceRoot, options) {
-    const normalized = yield* normalizeWorkspaceRoot({ workspaceRoot });
+    const loaded = workspaceRoot.trim().endsWith(".code-workspace")
+      ? yield* workspaceLoader.load(workspaceRoot)
+      : { workspaceRoot: yield* normalizeWorkspaceRoot({ workspaceRoot }), workspace: null };
+    const normalized = loaded.workspaceRoot;
     const row = yield* (
       options?.includeDeleted === true
         ? projects
             .list({ includeDeleted: true })
             .pipe(
               Effect.map((rows) =>
-                Option.fromUndefinedOr(rows.find((row) => row.workspaceRoot === normalized)),
+                Option.fromUndefinedOr(
+                  rows.find((row) =>
+                    loaded.workspace === null
+                      ? row.workspaceRoot === normalized && row.workspace == null
+                      : row.workspace?.filePath === loaded.workspace.filePath,
+                  ),
+                ),
               ),
             )
-        : projects.findActiveByWorkspaceRoot(normalized)
+        : projects.findActiveByWorkspaceRoot(normalized, loaded.workspace?.filePath)
     ).pipe(
       Effect.mapError((cause) => new ProjectOperationError({ operation: "list-projects", cause })),
     );
@@ -336,17 +355,24 @@ export const make = Effect.gen(function* () {
 
   const create: ProjectService["Service"]["create"] = Effect.fn("ProjectService.create")(
     function* (input) {
-      const workspaceRoot = yield* normalizeWorkspaceRoot({
-        projectId: input.projectId,
-        workspaceRoot: input.workspaceRoot,
-        createIfMissing: input.createWorkspaceRootIfMissing ?? false,
-      });
+      const loaded = input.workspaceRoot.trim().endsWith(".code-workspace")
+        ? yield* workspaceLoader.load(input.workspaceRoot)
+        : {
+            workspaceRoot: yield* normalizeWorkspaceRoot({
+              projectId: input.projectId,
+              workspaceRoot: input.workspaceRoot,
+              createIfMissing: input.createWorkspaceRootIfMissing ?? false,
+            }),
+            workspace: null,
+          };
+      const { workspaceRoot, workspace } = loaded;
       yield* commit({
         type: "project.create",
         commandId: input.commandId,
         projectId: input.projectId,
         title: input.title,
         workspaceRoot,
+        workspace,
         ...(input.scripts === undefined ? {} : { scripts: input.scripts }),
       });
       yield* projectEnrichment.invalidate([workspaceRoot]);
@@ -361,19 +387,29 @@ export const make = Effect.gen(function* () {
         return yield* new ProjectNotFoundError({ projectId: input.projectId });
       }
       const previousRoot = existing.value.workspaceRoot;
-      const workspaceRoot =
-        input.workspaceRoot === undefined
-          ? previousRoot
-          : yield* normalizeWorkspaceRoot({
-              projectId: input.projectId,
-              workspaceRoot: input.workspaceRoot,
-            });
+      const selectedPath =
+        input.workspaceRoot ??
+        (input.reloadWorkspace ? existing.value.workspace?.filePath : undefined);
+      const loaded =
+        selectedPath === undefined
+          ? { workspaceRoot: previousRoot, workspace: existing.value.workspace ?? null }
+          : selectedPath.trim().endsWith(".code-workspace")
+            ? yield* workspaceLoader.load(selectedPath)
+            : {
+                workspaceRoot: yield* normalizeWorkspaceRoot({
+                  projectId: input.projectId,
+                  workspaceRoot: selectedPath,
+                }),
+                workspace: null,
+              };
+      const { workspaceRoot, workspace } = loaded;
       yield* commit({
         type: "project.meta.update",
         commandId: input.commandId,
         projectId: input.projectId,
         ...(input.title === undefined ? {} : { title: input.title }),
         ...(workspaceRoot === previousRoot ? {} : { workspaceRoot }),
+        ...(selectedPath === undefined ? {} : { workspace, workspaceRoot }),
         ...(input.defaultModelSelection === undefined
           ? {}
           : { defaultModelSelection: input.defaultModelSelection }),
@@ -569,4 +605,5 @@ export const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(ProjectService, make).pipe(
   Layer.provide(ThreadCommandExecutor.layer),
+  Layer.provide(CodeWorkspaceLoader.layer.pipe(Layer.provide(ProcessRunner.layer))),
 );

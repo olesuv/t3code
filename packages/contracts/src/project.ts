@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
+import { CodeWorkspace, WorkspaceFolder } from "./codeWorkspace.ts";
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import {
@@ -10,6 +11,7 @@ import {
   NonNegativeInt,
   PositiveInt,
   ProjectId,
+  ThreadId,
   TrimmedNonEmptyString,
   TrimmedString,
   type UnknownUnionMember,
@@ -166,6 +168,7 @@ export const Project = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  workspace: Schema.optional(Schema.NullOr(CodeWorkspace)),
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   faviconPath: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
   projectIcon: Schema.optional(Schema.NullOr(ReceivedProjectIcon)),
@@ -208,6 +211,7 @@ export type ProjectCreatePayload = typeof ProjectCreatePayload.Type;
 export const ProjectUpdatePayload = Schema.Struct({
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  reloadWorkspace: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   autoPull: Schema.optional(Schema.Boolean),
   projectIcon: Schema.optional(Schema.NullOr(ProjectIconOverride)),
@@ -251,7 +255,18 @@ export class ProjectMutationError extends Schema.TaggedError<ProjectMutationErro
 export const ProjectEntryKind = Schema.Literals(["file", "directory"]);
 export type ProjectEntryKind = typeof ProjectEntryKind.Type;
 
+const WorkspaceFileContextFields = {
+  threadId: Schema.optionalKey(ThreadId),
+  projectId: Schema.optionalKey(ProjectId),
+  rootId: Schema.optionalKey(TrimmedNonEmptyString),
+};
+export const WorkspaceFileRootError = Schema.Struct({
+  root: WorkspaceFolder,
+  message: Schema.String,
+});
+
 export const ProjectSearchEntriesInput = Schema.Struct({
+  ...WorkspaceFileContextFields,
   cwd: TrimmedNonEmptyString,
   // An empty query is a bounded browse: the index returns frecency-ordered
   // entries, which the file picker uses for its initial results.
@@ -263,6 +278,7 @@ export const ProjectSearchEntriesInput = Schema.Struct({
 export type ProjectSearchEntriesInput = typeof ProjectSearchEntriesInput.Type;
 
 export const ProjectEntry = Schema.Struct({
+  root: Schema.optionalKey(WorkspaceFolder),
   path: TrimmedNonEmptyString,
   kind: ProjectEntryKind,
   ignored: Schema.optional(Schema.Boolean),
@@ -270,12 +286,14 @@ export const ProjectEntry = Schema.Struct({
 export type ProjectEntry = typeof ProjectEntry.Type;
 
 export const ProjectSearchEntriesResult = Schema.Struct({
+  rootErrors: Schema.optionalKey(Schema.Array(WorkspaceFileRootError)),
   entries: Schema.Array(ProjectEntry),
   truncated: Schema.Boolean,
 });
 export type ProjectSearchEntriesResult = typeof ProjectSearchEntriesResult.Type;
 
 export const ProjectSearchContentsInput = Schema.Struct({
+  ...WorkspaceFileContextFields,
   cwd: TrimmedNonEmptyString,
   // Whitespace is significant in content queries (" foo", regex trailing
   // spaces), so the query is deliberately not trimmed on the wire.
@@ -294,6 +312,7 @@ export const ProjectContentMatchRange = Schema.Struct({
 export type ProjectContentMatchRange = typeof ProjectContentMatchRange.Type;
 
 export const ProjectContentMatch = Schema.Struct({
+  root: Schema.optionalKey(WorkspaceFolder),
   path: TrimmedNonEmptyString,
   lineNumber: PositiveInt,
   lineContent: Schema.String,
@@ -302,6 +321,7 @@ export const ProjectContentMatch = Schema.Struct({
 export type ProjectContentMatch = typeof ProjectContentMatch.Type;
 
 export const ProjectSearchContentsResult = Schema.Struct({
+  rootErrors: Schema.optionalKey(Schema.Array(WorkspaceFileRootError)),
   matches: Schema.Array(ProjectContentMatch),
   truncated: Schema.Boolean,
   regexFallbackError: Schema.optional(Schema.String),
@@ -309,6 +329,7 @@ export const ProjectSearchContentsResult = Schema.Struct({
 export type ProjectSearchContentsResult = typeof ProjectSearchContentsResult.Type;
 
 export const ProjectListEntriesInput = Schema.Struct({
+  ...WorkspaceFileContextFields,
   cwd: TrimmedNonEmptyString,
   // Present for immediate filesystem children, including ignored entries; empty means root.
   // Omitted preserves the indexed recursive listing used by older clients.
@@ -317,6 +338,7 @@ export const ProjectListEntriesInput = Schema.Struct({
 export type ProjectListEntriesInput = typeof ProjectListEntriesInput.Type;
 
 export const ProjectListEntriesResult = Schema.Struct({
+  roots: Schema.optionalKey(Schema.Array(WorkspaceFolder)),
   entries: Schema.Array(ProjectEntry),
   truncated: Schema.Boolean,
 });

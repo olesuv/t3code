@@ -78,6 +78,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
   readonly projection?: OrchestrationV2ThreadProjection;
   readonly projectionRequests?: ThreadId[];
   readonly advertiseServerResolvedCommandContext?: boolean;
+  readonly codeWorkspaces?: boolean;
 }) {
   const client = {
     [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: (command: OrchestrationV2Command) =>
@@ -122,6 +123,7 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
   const session: RpcSession.RpcSession = {
     client,
     initialConfig: Effect.succeed({
+      ...(input.codeWorkspaces === undefined ? {} : { codeWorkspaces: input.codeWorkspaces }),
       environment: {
         capabilities: {
           repositoryIdentity: true,
@@ -148,6 +150,32 @@ const makeSupervisor = Effect.fn("TestEnvironmentCommands.makeSupervisor")(funct
 });
 
 describe("V2 environment commands", () => {
+  it.effect.each([false, true])(
+    "opens workspace files only on an advertised destination server (%s)",
+    (supported) =>
+      Effect.gen(function* () {
+        const projects: ProjectMutation[] = [];
+        const supervisor = yield* makeSupervisor({
+          commands: [],
+          projects,
+          codeWorkspaces: supported,
+        });
+        const operation = createProject({
+          projectId: ProjectId.make("workspace-project"),
+          title: "Workspace",
+          workspaceRoot: "/remote/repo.code-workspace",
+        }).pipe(Effect.provideService(EnvironmentSupervisor.EnvironmentSupervisor, supervisor));
+        if (supported) {
+          yield* operation;
+          expect(projects[0]?.type).toBe("project.create");
+        } else {
+          const error = yield* operation.pipe(Effect.flip);
+          expect(error._tag).toBe("WorkspaceServerUpdateRequiredError");
+          expect(projects).toEqual([]);
+        }
+      }).pipe(Effect.provide(layerTestCrypto)),
+  );
+
   it.effect("routes projects through the event-sourced project transport", () =>
     Effect.gen(function* () {
       const projects: ProjectMutation[] = [];

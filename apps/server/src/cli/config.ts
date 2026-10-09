@@ -1,3 +1,6 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as CodeWorkspaceLoader from "../project/CodeWorkspaceLoader.ts";
+import * as ProcessRunner from "../processRunner.ts";
 import * as NetService from "@t3tools/shared/Net";
 import {
   OtlpHeadersFromString,
@@ -11,6 +14,7 @@ import * as Config from "effect/Config";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Layer from "effect/Layer";
 import * as LogLevel from "effect/LogLevel";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
@@ -222,7 +226,7 @@ export const sharedServerCommandFlags = {
   baseDir: baseDirFlag,
   cwd: Argument.String("cwd").pipe(
     Argument.withDescription(
-      "Working directory for provider sessions (defaults to the current directory).",
+      "Directory or .code-workspace file to open (defaults to the current directory).",
     ),
     Argument.optional,
   ),
@@ -326,7 +330,20 @@ export const resolveServerConfig = (
       ),
     );
     const rawCwd = Option.getOrElse(normalizedFlags.cwd, () => process.cwd());
-    const cwd = path.resolve(yield* expandHomePath(rawCwd.trim()));
+    const resolvedPath = path.resolve(yield* expandHomePath(rawCwd.trim()));
+    const loadedWorkspace = resolvedPath.endsWith(".code-workspace")
+      ? yield* CodeWorkspaceLoader.CodeWorkspaceLoader.use((loader) =>
+          loader.load(resolvedPath),
+        ).pipe(
+          Effect.provide(
+            CodeWorkspaceLoader.layer.pipe(
+              Layer.provide(ProcessRunner.layer),
+              Layer.provide(NodeServices.layer),
+            ),
+          ),
+        )
+      : undefined;
+    const cwd = loadedWorkspace?.workspaceRoot ?? resolvedPath;
     const derivedPaths = yield* ServerConfig.deriveServerPaths(baseDir, devUrl, {
       baseDirIsExplicit: Option.isSome(explicitBaseDir),
     });
@@ -456,6 +473,9 @@ export const resolveServerConfig = (
       mode,
       port,
       cwd,
+      ...(loadedWorkspace === undefined
+        ? {}
+        : { bootstrapWorkspaceFile: loadedWorkspace.workspace.filePath }),
       baseDir,
       ...derivedPaths,
       serverTracePath,
@@ -473,7 +493,7 @@ export const resolveServerConfig = (
       desktopBrowserFd,
       desktopBrowserControlFd,
       resourceMonitorPath,
-      autoBootstrapProjectFromCwd,
+      autoBootstrapProjectFromCwd: loadedWorkspace !== undefined || autoBootstrapProjectFromCwd,
       logWebSocketEvents,
       tailscaleServeEnabled,
       tailscaleServePort,

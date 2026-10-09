@@ -318,3 +318,26 @@ describe("buildProjectGroups", () => {
     expect(groups[0]?.members.map((member) => member.project.id)).toEqual(["winner", "sibling"]);
   });
 });
+
+it("keeps workspace files in the same checkout distinct from each other and the directory project", () => {
+  const descriptor = (filePath: string) => ({
+    filePath,
+    workspaceRoot: "/repo",
+    folders: [],
+    repositories: [],
+  });
+  const first = makeProject("first", "/repo", {
+    workspace: descriptor("/repo/first.code-workspace"),
+  });
+  const second = makeProject("second", "/repo", {
+    workspace: descriptor("/repo/second.code-workspace"),
+  });
+  const directory = makeProject("directory", "/repo");
+  const groups = buildProjectGroups({
+    projects: [first, second, directory],
+    settings: settings("repository"),
+    preferredEnvironmentId: environmentId,
+  });
+  expect(groups).toHaveLength(3);
+  expect(new Set([first, second, directory].map(derivePhysicalProjectKey)).size).toBe(3);
+});

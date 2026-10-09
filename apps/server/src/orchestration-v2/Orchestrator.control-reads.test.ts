@@ -39,14 +39,123 @@ const adapter = {
   openSession: () => Effect.die("No provider process needed for metadata controls"),
 } as ProviderAdapterV2Shape;
 const layerDatabase = SqlitePersistence.layerMemory;
+const unsupportedInstanceId = ProviderInstanceId.make("unsupported-roots");
+const unsupportedAdapter = {
+  ...adapter,
+  instanceId: unsupportedInstanceId,
+  getCapabilities: () =>
+    Effect.succeed({
+      ...CodexProviderCapabilitiesV2,
+      runtimePolicy: { enforcement: "native" as const, supportsAdditionalWorkspaceRoots: false },
+    }),
+};
 const layerTest = Layer.mergeAll(
   layerDatabase,
   ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
   ProviderReplayHarness.layerWithRegistry(
     { name: "control-reads" },
-    ProviderAdapterRegistry.layerFromAdapters([adapter]),
+    ProviderAdapterRegistry.layerFromAdapters([adapter, unsupportedAdapter]),
     { databaseLayer: layerDatabase, runEffectWorker: false },
   ),
+);
+
+it.effect(
+  "freezes workspace membership when a thread starts and retains it in shell snapshots",
+  () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const projections = yield* ProjectionStore.ProjectionStoreV2;
+      const sql = yield* SqlClient.SqlClient;
+      const projectId = ProjectId.make("workspace-project");
+      const descriptor = {
+        filePath: "/workspace/all.code-workspace",
+        workspaceRoot: "/workspace",
+        folders: [{ id: "first", name: "First", path: "/external/first" }],
+        repositories: [{ id: "first-repo", name: "First", checkoutPath: "/workspace/first" }],
+      };
+      yield* sql`INSERT INTO projection_projects
+      (project_id, title, workspace_root, workspace_json, workspace_file_path, default_model_selection_json, scripts_json, created_at, updated_at, deleted_at)
+      VALUES (${projectId}, 'Workspace', '/workspace', ${JSON.stringify(descriptor)}, ${descriptor.filePath}, NULL, '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', NULL)`;
+      const create = (id: string) =>
+        orchestrator.dispatch({
+          type: "thread.create",
+          commandId: CommandId.make(`create:${id}`),
+          threadId: ThreadId.make(id),
+          projectId,
+          title: id,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          createdBy: "user",
+          creationSource: "web",
+        });
+      yield* create("before-reload");
+      const unsupported = yield* orchestrator
+        .dispatch({
+          type: "message.dispatch",
+          commandId: CommandId.make("workspace:unsupported-provider"),
+          threadId: ThreadId.make("before-reload"),
+          messageId: MessageId.make("workspace:unsupported-message"),
+          text: "Work across workspace folders",
+          attachments: [],
+          modelSelection: { ...modelSelection, instanceId: unsupportedInstanceId },
+          dispatchMode: { type: "start_immediately" },
+          createdBy: "user",
+          creationSource: "web",
+        })
+        .pipe(Effect.flip);
+      assert.equal(unsupported._tag, "WorkspaceProviderRootsUnsupportedError");
+      assert.include(unsupported.message, "does not support external workspace folders");
+      assert.isEmpty((yield* projections.getThreadProjection(ThreadId.make("before-reload"))).runs);
+      const denied = yield* orchestrator
+        .dispatch({
+          type: "thread.create",
+          commandId: CommandId.make("create:workspace-worktree"),
+          threadId: ThreadId.make("workspace-worktree"),
+          projectId,
+          title: "Workspace worktree",
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: "/worktree",
+          createdBy: "user",
+          creationSource: "web",
+        })
+        .pipe(Effect.flip);
+      assert.equal(denied._tag, "OrchestratorDispatchError");
+      const deniedHandoff = yield* orchestrator
+        .dispatch({
+          type: "thread.metadata.update",
+          commandId: CommandId.make("workspace:handoff"),
+          threadId: ThreadId.make("before-reload"),
+          worktreePath: "/other-worktree",
+        })
+        .pipe(Effect.flip);
+      assert.equal(deniedHandoff._tag, "OrchestratorDispatchError");
+      const reloaded = { ...descriptor, folders: [], repositories: [] };
+      yield* sql`UPDATE projection_projects SET workspace_json = ${JSON.stringify(reloaded)} WHERE project_id = ${projectId}`;
+      yield* create("after-reload");
+      assert.deepEqual(
+        (yield* projections.getThreadProjection(ThreadId.make("before-reload"))).thread.workspace,
+        descriptor,
+      );
+      assert.deepEqual(
+        (yield* projections.getThreadProjection(ThreadId.make("after-reload"))).thread.workspace,
+        reloaded,
+      );
+      assert.deepEqual(
+        (yield* projections.getThreadShell(ThreadId.make("before-reload")))?.workspace,
+        descriptor,
+      );
+      const snapshot = yield* projections.getShellSnapshot();
+      assert.deepEqual(
+        snapshot.threads.find((thread) => thread.id === "before-reload")?.workspace,
+        descriptor,
+      );
+    }).pipe(Effect.provide(layerTest)),
 );
 
 it.effect(

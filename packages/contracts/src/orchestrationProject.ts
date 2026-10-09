@@ -4,12 +4,14 @@ import { IsoDateTime, ProjectId, TrimmedNonEmptyString } from "./baseSchemas.ts"
 import { RepositoryIdentity, ThreadEnvMode } from "./environment.ts";
 import { ModelSelection } from "./modelSelection.ts";
 import { ProjectScript, ReceivedProjectIcon } from "./project.ts";
+import { CodeWorkspace } from "./codeWorkspace.ts";
 
 /** Project summary shared by the V2 shell and application project APIs. */
 export const OrchestrationProjectShell = Schema.Struct({
   id: ProjectId,
   title: TrimmedNonEmptyString,
   workspaceRoot: TrimmedNonEmptyString,
+  workspace: Schema.optional(Schema.NullOr(CodeWorkspace)),
   repositoryIdentity: Schema.optional(Schema.NullOr(RepositoryIdentity)),
   defaultModelSelection: Schema.NullOr(ModelSelection),
   // Per-project override for where new threads start. Null/absent means

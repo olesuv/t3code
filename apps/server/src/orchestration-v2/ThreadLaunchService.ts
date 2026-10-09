@@ -245,6 +245,13 @@ const make = Effect.gen(function* () {
       ),
     );
 
+    if (project.workspace && input.workspaceStrategy.type !== "root") {
+      return yield* mapError(
+        input,
+        "provision-worktree",
+        threadId,
+      )("Workspace projects use existing checkouts and do not support worktrees.");
+    }
     const reused = input.reusedWorktree;
     const tracked = input.workspaceStrategy.type === "worktree" || reused !== undefined;
     let createdWorktreePath: string | null = null;
@@ -696,6 +703,12 @@ const make = Effect.gen(function* () {
           }),
         ),
       );
+      if (project.workspace && input.workspaceStrategy.type !== "root") {
+        return yield* mapError(
+          input,
+          "provision-worktree",
+        )("Workspace projects use existing checkouts and do not support worktrees.");
+      }
       if (input.reuseExistingThread === true && input.threadId === undefined) {
         return yield* mapError(
           input,

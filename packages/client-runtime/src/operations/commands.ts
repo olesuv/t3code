@@ -31,6 +31,7 @@ import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2Pend
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
 
 import { getInitialServerConfig, request } from "../rpc/client.ts";
 
@@ -50,6 +51,7 @@ export interface CreateProjectInput extends CommandMetadata {
 }
 
 export interface UpdateProjectInput extends CommandMetadata {
+  readonly reloadWorkspace?: boolean;
   readonly projectId: ProjectId;
   readonly title?: string;
   readonly workspaceRoot?: string;
@@ -325,6 +327,7 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
         readonly projectId: ProjectId;
         readonly title?: string;
         readonly workspaceRoot?: string;
+        readonly reloadWorkspace?: boolean;
         readonly defaultModelSelection?: ModelSelection | null;
         readonly scripts?: ReadonlyArray<ProjectScript>;
       }
@@ -338,9 +341,24 @@ const mutateProject = Effect.fn("EnvironmentCommands.mutateProject")(function* (
   return yield* request(WS_METHODS.projectsMutate, mutation);
 });
 
+export class WorkspaceServerUpdateRequiredError extends Schema.TaggedError<WorkspaceServerUpdateRequiredError>()(
+  "WorkspaceServerUpdateRequiredError",
+  {},
+) {
+  override get message(): string {
+    return "Update this environment's server to open workspace files.";
+  }
+}
+
 export const createProject = Effect.fn("EnvironmentCommands.createProject")(function* (
   input: CreateProjectInput,
 ) {
+  if (
+    input.workspaceRoot.trim().endsWith(".code-workspace") &&
+    (yield* getInitialServerConfig()).codeWorkspaces !== true
+  ) {
+    return yield* new WorkspaceServerUpdateRequiredError({});
+  }
   return yield* mutateProject({
     type: "project.create",
     commandId: yield* allocateCommandId(input),
@@ -366,6 +384,7 @@ export const updateProject = Effect.fn("EnvironmentCommands.updateProject")(func
     projectId: input.projectId,
     ...(input.title === undefined ? {} : { title: input.title }),
     ...(input.workspaceRoot === undefined ? {} : { workspaceRoot: input.workspaceRoot }),
+    ...(input.reloadWorkspace === undefined ? {} : { reloadWorkspace: input.reloadWorkspace }),
     ...(input.defaultModelSelection === undefined
       ? {}
       : { defaultModelSelection: input.defaultModelSelection }),
@@ -895,7 +914,11 @@ export const revertThreadCheckpoint = Effect.fn("EnvironmentCommands.revertThrea
           ? candidate.ordinalWithinScope === 0 && candidate.appRunOrdinal === null
           : candidate.appRunOrdinal === input.turnCount,
       );
-    if (checkpoint === undefined || checkpoint.status !== "ready") {
+    if (
+      checkpoint === undefined ||
+      (checkpoint.status !== "ready" &&
+        !(projection.thread.workspace && input.restoreFiles === false))
+    ) {
       const target =
         input.checkpointId === undefined
           ? `run ordinal ${input.turnCount ?? "unknown"}`

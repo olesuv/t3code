@@ -44,6 +44,31 @@ const makeDesktopBootstrap = (
 });
 
 it.layer(NodeServices.layer)("cli config resolution", (it) => {
+  it.effect("opens a workspace file with a directory cwd and explicit bootstrap identity", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-workspace-startup-" });
+      const canonicalRoot = yield* fs.realPath(root);
+      const file = path.join(canonicalRoot, "team.code-workspace");
+      yield* fs.writeFileString(file, '{"folders":[{"path":"."}]}');
+      const config = yield* resolveServerConfig(
+        {
+          ...minimalWebFlags(path.join(root, "state")),
+          port: Option.some(8788),
+          cwd: Option.some(file),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.merge(NetService.layer, ConfigProvider.layer(ConfigProvider.fromEnv({ env: {} }))),
+        ),
+      );
+      assert.equal(config.cwd, canonicalRoot);
+      assert.equal(config.bootstrapWorkspaceFile, file);
+      assert.isTrue(config.autoBootstrapProjectFromCwd);
+    }),
+  );
   const defaultObservabilityConfig = {
     traceMinLevel: "Info",
     traceTimingEnabled: true,

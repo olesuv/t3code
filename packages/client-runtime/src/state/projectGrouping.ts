@@ -71,25 +71,28 @@ export function derivePhysicalProjectKeyFromPath(environmentId: string, cwd: str
 }
 
 export function derivePhysicalProjectKey(
-  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
+  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot" | "workspace">,
 ): string {
-  return derivePhysicalProjectKeyFromPath(project.environmentId, project.workspaceRoot);
+  return derivePhysicalProjectKeyFromPath(
+    project.environmentId,
+    project.workspace?.filePath ?? project.workspaceRoot,
+  );
 }
 
 export function deriveProjectGroupingOverrideKey(
-  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
+  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot" | "workspace">,
 ): string {
   return derivePhysicalProjectKey(project);
 }
 
 export function getProjectOrderKey(
-  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
+  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot" | "workspace">,
 ): string {
   return derivePhysicalProjectKey(project);
 }
 
 export function resolveProjectGroupingMode(
-  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot">,
+  project: Pick<EnvironmentProject, "environmentId" | "workspaceRoot" | "workspace">,
   settings: ProjectGroupingSettings,
 ): SidebarProjectGroupingMode {
   return (
@@ -126,14 +129,14 @@ function deriveRepositoryScopedKey(
 export function deriveLogicalProjectKey(
   project: Pick<
     EnvironmentProject,
-    "environmentId" | "id" | "workspaceRoot" | "repositoryIdentity"
+    "environmentId" | "id" | "workspaceRoot" | "repositoryIdentity" | "workspace"
   >,
   options?: {
     readonly groupingMode?: SidebarProjectGroupingMode;
   },
 ): string {
   const groupingMode = options?.groupingMode ?? "repository";
-  if (groupingMode === "separate") {
+  if (project.workspace || groupingMode === "separate") {
     return derivePhysicalProjectKey(project);
   }
 
@@ -147,7 +150,7 @@ export function deriveLogicalProjectKey(
 export function deriveLogicalProjectKeyFromSettings(
   project: Pick<
     EnvironmentProject,
-    "environmentId" | "id" | "workspaceRoot" | "repositoryIdentity"
+    "environmentId" | "id" | "workspaceRoot" | "repositoryIdentity" | "workspace"
   >,
   settings: ProjectGroupingSettings,
 ): string {

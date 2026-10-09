@@ -79,6 +79,32 @@ const failureOf = (result: ReturnType<typeof plan>) => {
 };
 
 describe("planProjectCommand", () => {
+  it("disables automatic pull and worktree defaults when converting a project to a workspace", () => {
+    const workspace = {
+      filePath: "/tmp/scripts/all.code-workspace",
+      workspaceRoot: "/tmp/scripts",
+      folders: [],
+      repositories: [],
+    };
+    const result = update({ workspace });
+    assert.deepInclude(payloadOf(result), {
+      workspace,
+      autoPull: false,
+      defaultThreadEnvMode: "local",
+    });
+    for (const fields of [{ autoPull: true }, { defaultThreadEnvMode: "worktree" as const }]) {
+      const rejected = plan(
+        {
+          type: "project.meta.update",
+          commandId: CommandId.make("workspace-policy"),
+          projectId,
+          ...fields,
+        },
+        { project: row({ workspace }) },
+      );
+      assert.equal(failureOf(rejected)._tag, "ProjectCommandInvariantError");
+    }
+  });
   it("creates projects with empty scripts and no model default", () => {
     const result = plan({
       type: "project.create",
