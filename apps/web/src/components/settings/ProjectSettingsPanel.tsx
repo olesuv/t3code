@@ -536,6 +536,40 @@ function ProjectDetail({
             }
           />
         </SettingsSection>
+        {group.memberProjects.some((member) => member.workspace) ? (
+          <SettingsSection title="Workspace">
+            <SettingsRow
+              title="Reload workspace"
+              description="Read the workspace file again for future threads. Existing threads keep their original folders and repository history."
+              control={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!canEditGroup}
+                  onClick={() => {
+                    void Promise.all(
+                      group.memberProjects
+                        .filter((member) => member.workspace)
+                        .map(async (member) => {
+                          const result = await updateProject({
+                            environmentId: member.environmentId,
+                            input: { projectId: member.id, reloadWorkspace: true },
+                          });
+                          if (AsyncResult.isFailure(result))
+                            reportFailure(
+                              "Failed to reload workspace",
+                              mapAtomCommandResult(result, () => undefined),
+                            );
+                        }),
+                    );
+                  }}
+                >
+                  Reload workspace
+                </Button>
+              }
+            />
+          </SettingsSection>
+        ) : null}
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
         {hasMultipleCheckouts ? checkoutChoices : null}

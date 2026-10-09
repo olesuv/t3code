@@ -30,6 +30,32 @@ beforeEach(() => {
 });
 
 describe("rightPanelStore", () => {
+  it("keeps identical workspace filenames in separate root tabs and restores the selected folder", () => {
+    const store = useRightPanelStore.getState();
+    store.openFile(refA, "same.txt", 2, "one");
+    store.openFile(refA, "same.txt", 7, "external");
+    const tabs = selectThreadRightPanelState(
+      useRightPanelStore.getState().byThreadKey,
+      refA,
+    ).surfaces;
+    expect(tabs).toHaveLength(2);
+    expect(tabs[0]?.id).not.toBe(tabs[1]?.id);
+    expect(tabs[1]).toMatchObject({
+      kind: "file",
+      rootId: "external",
+      relativePath: "same.txt",
+      revealLine: 7,
+    });
+    store.openFile(refA, ".", undefined, "one");
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ kind: "files", rootId: "one" });
+    store.openFile(refA, "same.txt", 9, "external");
+    expect(
+      selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ kind: "file", rootId: "external", revealLine: 9 });
+  });
+
   it("records single and bulk tab closes, newest first", () => {
     const store = useRightPanelStore.getState();
     const pr = pullRequestSurface({

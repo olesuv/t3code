@@ -5,6 +5,7 @@ import {
 } from "@t3tools/client-runtime/state/runtime";
 import type {
   EnvironmentId,
+  ThreadId,
   PullRequestDiffFileContentsInput,
   PullRequestDiffFileContentsResult,
   PullRequestRef,
@@ -18,6 +19,8 @@ import { resolveFileDiffPath } from "./diffRendering";
 interface GitDiffFileContentsSource {
   readonly environmentId: EnvironmentId;
   readonly cwd: string;
+  readonly threadId?: ThreadId | undefined;
+  readonly repositoryId?: string | undefined;
   readonly sourceKind: ReviewDiffPreviewSourceKind;
   readonly baseRef: string | null;
   readonly headRef: string | null;
@@ -85,6 +88,8 @@ export function createGitDiffFileContentsLoader<E>(
       environmentId: source.environmentId,
       input: {
         cwd: source.cwd,
+        ...(source.threadId === undefined ? {} : { threadId: source.threadId }),
+        ...(source.repositoryId === undefined ? {} : { repositoryId: source.repositoryId }),
         sourceKind: source.sourceKind,
         changeType,
         baseRef: source.baseRef,

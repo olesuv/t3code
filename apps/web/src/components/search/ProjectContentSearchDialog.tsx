@@ -44,15 +44,21 @@ function splitPath(path: string): { readonly name: string; readonly directory: s
 function groupMatches(matches: ReadonlyArray<ProjectContentMatch>): MatchGroup[] {
   const groups = new Map<string, Array<ProjectContentMatch & { readonly resultIndex: number }>>();
   matches.forEach((match, resultIndex) => {
-    const group = groups.get(match.path);
+    const key = JSON.stringify([match.root?.id ?? "", match.path]);
+    const group = groups.get(key);
     const indexedMatch = { ...match, resultIndex };
     if (group) {
       group.push(indexedMatch);
     } else {
-      groups.set(match.path, [indexedMatch]);
+      groups.set(key, [indexedMatch]);
     }
   });
-  return [...groups].map(([path, groupedMatches]) => ({ path, matches: groupedMatches }));
+  return [...groups].map(([, groupedMatches]) => ({
+    path: groupedMatches[0]!.root
+      ? `${groupedMatches[0]!.root!.name}/${groupedMatches[0]!.path}`
+      : groupedMatches[0]!.path,
+    matches: groupedMatches,
+  }));
 }
 
 function SearchOptionButton(props: {
@@ -119,6 +125,11 @@ function OpenContentSearchDialog(props: {
   const search = useProjectContentSearch({
     environmentId: target.environmentId,
     cwd: target.cwd,
+    ...(target.workspaceThreadId
+      ? { threadId: target.workspaceThreadId }
+      : target.workspaceProjectId
+        ? { projectId: target.workspaceProjectId }
+        : {}),
     query,
     caseSensitive,
     wholeWord,
@@ -160,9 +171,16 @@ function OpenContentSearchDialog(props: {
       return;
     }
     props.onOpenChange(false);
-    useRightPanelStore.getState().openFile(target.threadRef, match.path, match.lineNumber);
+    if (match.root)
+      useRightPanelStore
+        .getState()
+        .openFile(target.threadRef, match.path, match.lineNumber, match.root.id);
+    else useRightPanelStore.getState().openFile(target.threadRef, match.path, match.lineNumber);
   };
-  const fileCount = useMemo(() => new Set(matches.map((match) => match.path)).size, [matches]);
+  const fileCount = useMemo(
+    () => new Set(matches.map((match) => JSON.stringify([match.root?.id ?? "", match.path]))).size,
+    [matches],
+  );
   const showSearchStatus =
     search.canReadFiles &&
     (search.hasQuery || search.isPending || search.error !== null || search.invalidRegex);
@@ -241,6 +259,10 @@ function OpenContentSearchDialog(props: {
             </span>
           ) : search.error ? (
             <span className="text-destructive">{search.error}</span>
+          ) : search.rootErrors?.length ? (
+            <span className="text-destructive">
+              {search.rootErrors.map(({ root, message }) => `${root.name}: ${message}`).join("; ")}
+            </span>
           ) : search.invalidRegex ? (
             <span className="text-destructive">Invalid regular expression</span>
           ) : (
@@ -265,7 +287,10 @@ function OpenContentSearchDialog(props: {
             {groups.map((group) => {
               const path = splitPath(group.path);
               return (
-                <section className="pb-2" key={group.path}>
+                <section
+                  className="pb-2"
+                  key={JSON.stringify([group.matches[0]?.root?.id ?? "", group.path])}
+                >
                   <div className="sticky top-0 z-10 flex h-8 items-center gap-2 bg-popover/95 px-3 text-xs backdrop-blur-sm">
                     <PierreEntryIcon
                       pathValue={group.path}

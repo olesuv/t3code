@@ -1,5 +1,5 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId, ScopedThreadRef, ProjectId, ThreadId } from "@t3tools/contracts";
 
 import { useProjects } from "~/state/entities";
 
@@ -10,6 +10,8 @@ export interface ActiveProjectTarget {
   readonly cwd: string;
   readonly projectName: string;
   readonly threadRef: ScopedThreadRef;
+  readonly workspaceThreadId?: ThreadId;
+  readonly workspaceProjectId?: ProjectId;
 }
 
 /**
@@ -28,11 +30,13 @@ export function useActiveProjectTarget(): ActiveProjectTarget | null {
           candidate.environmentId === thread.environmentId && candidate.id === thread.projectId,
       )
     : null;
-  const cwd = thread?.worktreePath ?? project?.workspaceRoot;
+  const cwd =
+    activeThread?.workspace?.workspaceRoot ?? thread?.worktreePath ?? project?.workspaceRoot;
 
   if (!thread || !threadId || !project || !cwd) return null;
 
   return {
+    ...(activeThread ? { workspaceThreadId: activeThread.id } : { workspaceProjectId: project.id }),
     environmentId: project.environmentId,
     cwd,
     projectName: project.title,

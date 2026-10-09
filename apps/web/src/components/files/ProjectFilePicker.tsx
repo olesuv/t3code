@@ -77,6 +77,13 @@ function OpenProjectFilePicker(props: ProjectFilePickerProps & { target: ActiveP
     target.cwd,
     query,
     PROJECT_FILE_PICKER_RESULT_LIMIT,
+    {
+      ...(target.workspaceThreadId
+        ? { threadId: target.workspaceThreadId }
+        : target.workspaceProjectId
+          ? { projectId: target.workspaceProjectId }
+          : {}),
+    },
   );
   const { resolvedTheme } = useTheme();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -89,7 +96,7 @@ function OpenProjectFilePicker(props: ProjectFilePickerProps & { target: ActiveP
     () =>
       matches.map((match) => ({
         kind: "action",
-        value: `file:${match.path}`,
+        value: `file:${match.root?.id ?? ""}:${match.path}`,
         searchTerms: [match.name, match.path],
         title: (
           <HighlightedFuzzyText
@@ -107,7 +114,14 @@ function OpenProjectFilePicker(props: ProjectFilePickerProps & { target: ActiveP
         ),
         icon: <PierreEntryIcon pathValue={match.path} kind="file" theme={resolvedTheme} />,
         run: async () => {
-          useRightPanelStore.getState().openFile(target.threadRef, match.path);
+          useRightPanelStore
+            .getState()
+            .openFile(
+              target.threadRef,
+              match.relativePath ?? match.path,
+              undefined,
+              match.root?.id,
+            );
         },
       })),
     [hasMatchedQuery, matches, resolvedTheme, target.threadRef],

@@ -9,6 +9,7 @@ let cachedApi: LocalApi | undefined;
 function createBrowserLocalApi(): LocalApi {
   return {
     dialogs: {
+      pickWorkspace: async (options) => window.desktopBridge?.pickWorkspace?.(options) ?? null,
       pickFolder: async (options) => {
         if (!window.desktopBridge) return null;
         return window.desktopBridge.pickFolder(options);

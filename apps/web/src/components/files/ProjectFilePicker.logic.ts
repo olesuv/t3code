@@ -1,9 +1,11 @@
-import type { ProjectEntry } from "@t3tools/contracts";
+import type { ProjectEntry, WorkspaceFolder } from "@t3tools/contracts";
 import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 
 export const PROJECT_FILE_PICKER_RESULT_LIMIT = 200;
 
 export interface ProjectFilePickerMatch {
+  readonly root?: WorkspaceFolder;
+  readonly relativePath?: string;
   readonly name: string;
   readonly nameMatchIndices: ReadonlyArray<number>;
   readonly path: string;
@@ -59,11 +61,13 @@ export function getProjectFilePickerMatches(
 
     const name = fileName(entry.path);
     const nameMatchIndices = findMatchIndices(name, query);
-    const pathMatchIndices = findMatchIndices(entry.path, query);
+    const qualifiedPath = entry.root ? `${entry.root.name}/${entry.path}` : entry.path;
+    const pathMatchIndices = findMatchIndices(qualifiedPath, query);
     matches.push({
       name,
       nameMatchIndices: nameMatchIndices ?? [],
-      path: entry.path,
+      path: qualifiedPath,
+      ...(entry.root ? { root: entry.root, relativePath: entry.path } : {}),
       pathMatchIndices: pathMatchIndices ?? [],
     });
     if (matches.length >= limit) break;

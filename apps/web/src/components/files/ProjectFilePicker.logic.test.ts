@@ -15,6 +15,28 @@ const entries = [
 ] as const;
 
 describe("getProjectFilePickerMatches", () => {
+  it("shows named roots while retaining the relative path needed to open duplicate filenames", () => {
+    const roots = [
+      { id: "one", name: "One", path: "/workspace/one" },
+      { id: "external", name: "External", path: "/external" },
+    ];
+    const matches = getProjectFilePickerMatches(
+      roots.map((root) => ({ kind: "file", path: "same.txt", root })),
+      "same",
+    );
+    assert.deepEqual(
+      matches.map((entry) => entry.path),
+      ["One/same.txt", "External/same.txt"],
+    );
+    assert.deepEqual(
+      matches.map((entry) => [entry.root?.id, entry.relativePath]),
+      [
+        ["one", "same.txt"],
+        ["external", "same.txt"],
+      ],
+    );
+  });
+
   it("returns files only and preserves index order for an empty query", () => {
     assert.deepEqual(pathsForQuery(entries, ""), [
       { name: "index.ts", path: "apps/web/src/index.ts" },

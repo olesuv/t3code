@@ -1,3 +1,4 @@
+import { useWorkspaceRepository } from "../hooks/useWorkspaceRepository";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { useAtomValue } from "@effect/atom-react";
 import {
@@ -112,7 +113,7 @@ import {
   useVcsInitAction,
   useVcsPullAction,
 } from "~/lib/sourceControlActions";
-import { useThreadProjection, useThreadShell } from "~/state/entities";
+import { useProject, useThreadProjection, useThreadShell } from "~/state/entities";
 import { readEnvironmentScope, useEnvironmentScope } from "~/state/session";
 import { useEnvironmentQuery } from "~/state/query";
 import { serverEnvironment } from "~/state/server";
@@ -1064,7 +1065,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
 
 export default function GitActionsControl({
   presentation = "toolbar",
-  gitCwd,
+  gitCwd: providedGitCwd,
   activeThreadRef,
   draftId,
   displayMode = "toolbar",
@@ -1079,7 +1080,7 @@ export default function GitActionsControl({
     "thread branch metadata update",
   );
   const activeEnvironmentId = activeThreadRef?.environmentId ?? null;
-  const successScopeKey = `${activeEnvironmentId ?? ""}\u0000${gitCwd ?? ""}`;
+
   const canWriteSourceControl = useEnvironmentScope(
     activeEnvironmentId,
     AuthSourceControlWriteScope,
@@ -1108,6 +1109,15 @@ export default function GitActionsControl({
   );
   const activeServerThread =
     activeServerThreadShell ?? activeServerThreadProjection?.projection.thread ?? null;
+  const projectId = activeServerThread?.projectId ?? activeDraftThread?.projectId;
+  const project = useProject(
+    activeEnvironmentId && projectId ? { environmentId: activeEnvironmentId, projectId } : null,
+  );
+  const workspace =
+    activeServerThread?.workspace ?? (activeServerThread ? null : project?.workspace);
+  const { repository } = useWorkspaceRepository(activeThreadRef, workspace);
+  const gitCwd = workspace ? (repository?.checkoutPath ?? null) : providedGitCwd;
+  const successScopeKey = `${activeEnvironmentId ?? ""}\u0000${gitCwd ?? ""}`;
   const isLocalDraftThread = activeDraftThread !== null && activeServerThread === null;
   const canChangeThreadBranch = canWriteSourceControl && (isLocalDraftThread || canOperateThread);
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
@@ -1137,7 +1147,7 @@ export default function GitActionsControl({
 
   const persistThreadBranchSync = useCallback(
     (branch: string | null, manualSelection = false) => {
-      if (!activeThreadRef) {
+      if (!activeThreadRef || workspace) {
         return;
       }
 
@@ -1177,6 +1187,7 @@ export default function GitActionsControl({
       activeDraftThread,
       activeServerThread,
       activeThreadRef,
+      workspace,
       draftId,
       setDraftThreadContext,
       updateThreadMetadata,
@@ -1333,6 +1344,7 @@ export default function GitActionsControl({
     }: RunGitActionWithToastInput) => {
       if (
         activeEnvironmentId === null ||
+        gitCwd === null ||
         !readEnvironmentScope(activeEnvironmentId, AuthSourceControlWriteScope) ||
         (featureBranch &&
           !isLocalDraftThread &&

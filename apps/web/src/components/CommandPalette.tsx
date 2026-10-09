@@ -1177,6 +1177,10 @@ function OpenCommandPaletteDialog(props: {
           environmentId: browseEnvironmentId,
           input: {
             partialPath: browsePath.directoryPath,
+            ...(addProjectCloneFlow?.step !== "confirm" &&
+            browseEnvironment?.serverConfig?.codeWorkspaces === true
+              ? { includeWorkspaceFiles: true }
+              : {}),
             ...(currentProjectCwdForBrowse ? { cwd: currentProjectCwdForBrowse } : {}),
           },
         })
@@ -2773,6 +2777,13 @@ function OpenCommandPaletteDialog(props: {
 
   const browseTo = useCallback(
     async (name: string): Promise<void> => {
+      const workspaceEntry = visibleBrowseEntries.find(
+        (entry) => entry.name === name && entry.kind === "workspace",
+      );
+      if (workspaceEntry) {
+        await handleAddProject(workspaceEntry.fullPath);
+        return;
+      }
       const nextQuery = pinnedCloneDirectoryName
         ? getCloneDestinationBrowsePath({
             browseDirectoryPath: browsePath.directoryPath,
@@ -2794,6 +2805,8 @@ function OpenCommandPaletteDialog(props: {
       browseNavigation,
       browseEnvironmentPlatform,
       browsePath.directoryPath,
+      visibleBrowseEntries,
+      handleAddProject,
       pinnedCloneDirectoryName,
       prefetchBrowsePath,
       query,
@@ -3225,116 +3238,124 @@ function OpenCommandPaletteDialog(props: {
     });
   }
 
-  const handleOpenProjectFromFileManager = useCallback(async () => {
-    if (!canOpenProjectFromFileManager || isPickingProjectFolder) {
-      return;
-    }
-    const api = readLocalApi();
-    if (!api) {
-      return;
-    }
-
-    setIsPickingProjectFolder(true);
-    let pickedPath: string | null = null;
-    let desktopWslState: DesktopWslState | null = null;
-    try {
-      desktopWslState =
-        browseEnvironmentId === primaryEnvironmentId && browseEnvironmentPlatform === "Linux"
-          ? ((await window.desktopBridge?.getWslState().catch(() => null)) ?? null)
-          : null;
-      // Route the picker to the browsed env's backend filesystem. The desktop
-      // only resolves a "wsl:*" pool instance id, so for a desktop-local env we
-      // pass the bootstrap-mapped instance id (not the catalog environmentId).
-      // A WSL-only primary has no secondary bootstrap, so resolve its instance
-      // id from desktop settings. Windows and combo-mode primaries still omit
-      // the target to preserve the native primary picker. The desktop converts
-      // a WSL UNC selection back to a Linux path before returning.
-      const pickerTargetEnvironmentId = resolveProjectPickerTarget({
-        browseEnvironmentId,
-        primaryEnvironmentId,
-        desktopInstanceId: browseDesktopInstanceId,
-        wslConfiguration: desktopWslState,
-      });
-      const pickerOptions = {
-        ...(fileManagerInitialPath ? { initialPath: fileManagerInitialPath } : {}),
-        ...(pickerTargetEnvironmentId ? { targetEnvironmentId: pickerTargetEnvironmentId } : {}),
-      };
-      pickedPath = await api.dialogs.pickFolder(
-        Object.keys(pickerOptions).length > 0 ? pickerOptions : undefined,
-      );
-    } catch {
-      // Ignore picker failures and leave the palette open.
-      setIsPickingProjectFolder(false);
-      return;
-    }
-    setIsPickingProjectFolder(false);
-    if (!pickedPath) {
-      return;
-    }
-    if (parseWslUncPath(pickedPath)) {
-      desktopWslState ??= (await window.desktopBridge?.getWslState().catch(() => null)) ?? null;
-      let primaryRunningDistro: string | null = null;
-      try {
-        primaryRunningDistro =
-          window.desktopBridge
-            ?.getLocalEnvironmentBootstraps()
-            .find((bootstrap) => bootstrap.id === PRIMARY_LOCAL_ENVIRONMENT_ID)?.runningDistro ??
-          null;
-      } catch {
-        // Keep UNC routing strict when the live primary identity cannot be read.
-      }
-      const selection = resolveWslProjectSelection(
-        pickedPath,
-        applyWslEnvironmentConfiguration(
-          environments.flatMap((environment) => {
-            const backendId = desktopLocalBackendId(environment.entry.target);
-            if (!backendId) {
-              return [];
-            }
-
-            const bootstrap = desktopLocalBootstraps.find(
-              (candidate) => candidate.httpBaseUrl === environment.displayUrl,
-            );
-            const runningDistro = bootstrap?.runningDistro ?? null;
-            return [{ environmentId: environment.environmentId, backendId, runningDistro }];
-          }),
-          primaryEnvironmentId,
-          desktopWslState ?? null,
-          primaryRunningDistro,
-        ),
-      );
-      if (!selection) {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not add WSL project",
-            description: "Start the matching WSL backend, then choose the folder again.",
-          }),
-        );
+  const handleOpenProjectFromFileManager = useCallback(
+    async (workspaceFile = false) => {
+      if (!canOpenProjectFromFileManager || isPickingProjectFolder) {
         return;
       }
-      await handleAddProjectForEnvironment({
-        environmentId: selection.environmentId,
-        rawCwd: selection.linuxPath,
-        platform: "Linux",
-        currentProjectCwd: null,
-      });
-      return;
-    }
-    await handleAddProject(pickedPath);
-  }, [
-    browseDesktopInstanceId,
-    browseEnvironmentId,
-    browseEnvironmentPlatform,
-    canOpenProjectFromFileManager,
-    desktopLocalBootstraps,
-    environments,
-    fileManagerInitialPath,
-    handleAddProject,
-    handleAddProjectForEnvironment,
-    isPickingProjectFolder,
-    primaryEnvironmentId,
-  ]);
+      const api = readLocalApi();
+      if (!api) {
+        return;
+      }
+
+      setIsPickingProjectFolder(true);
+      let pickedPath: string | null = null;
+      let desktopWslState: DesktopWslState | null = null;
+      try {
+        desktopWslState =
+          browseEnvironmentId === primaryEnvironmentId && browseEnvironmentPlatform === "Linux"
+            ? ((await window.desktopBridge?.getWslState().catch(() => null)) ?? null)
+            : null;
+        // Route the picker to the browsed env's backend filesystem. The desktop
+        // only resolves a "wsl:*" pool instance id, so for a desktop-local env we
+        // pass the bootstrap-mapped instance id (not the catalog environmentId).
+        // A WSL-only primary has no secondary bootstrap, so resolve its instance
+        // id from desktop settings. Windows and combo-mode primaries still omit
+        // the target to preserve the native primary picker. The desktop converts
+        // a WSL UNC selection back to a Linux path before returning.
+        const pickerTargetEnvironmentId = resolveProjectPickerTarget({
+          browseEnvironmentId,
+          primaryEnvironmentId,
+          desktopInstanceId: browseDesktopInstanceId,
+          wslConfiguration: desktopWslState,
+        });
+        const pickerOptions = {
+          ...(fileManagerInitialPath ? { initialPath: fileManagerInitialPath } : {}),
+          ...(pickerTargetEnvironmentId ? { targetEnvironmentId: pickerTargetEnvironmentId } : {}),
+        };
+        const picker = workspaceFile ? api.dialogs.pickWorkspace : api.dialogs.pickFolder;
+        if (!picker) {
+          setIsPickingProjectFolder(false);
+          return;
+        }
+        pickedPath = await picker(
+          Object.keys(pickerOptions).length > 0 ? pickerOptions : undefined,
+        );
+      } catch {
+        // Ignore picker failures and leave the palette open.
+        setIsPickingProjectFolder(false);
+        return;
+      }
+      setIsPickingProjectFolder(false);
+      if (!pickedPath) {
+        return;
+      }
+      if (parseWslUncPath(pickedPath)) {
+        desktopWslState ??= (await window.desktopBridge?.getWslState().catch(() => null)) ?? null;
+        let primaryRunningDistro: string | null = null;
+        try {
+          primaryRunningDistro =
+            window.desktopBridge
+              ?.getLocalEnvironmentBootstraps()
+              .find((bootstrap) => bootstrap.id === PRIMARY_LOCAL_ENVIRONMENT_ID)?.runningDistro ??
+            null;
+        } catch {
+          // Keep UNC routing strict when the live primary identity cannot be read.
+        }
+        const selection = resolveWslProjectSelection(
+          pickedPath,
+          applyWslEnvironmentConfiguration(
+            environments.flatMap((environment) => {
+              const backendId = desktopLocalBackendId(environment.entry.target);
+              if (!backendId) {
+                return [];
+              }
+
+              const bootstrap = desktopLocalBootstraps.find(
+                (candidate) => candidate.httpBaseUrl === environment.displayUrl,
+              );
+              const runningDistro = bootstrap?.runningDistro ?? null;
+              return [{ environmentId: environment.environmentId, backendId, runningDistro }];
+            }),
+            primaryEnvironmentId,
+            desktopWslState ?? null,
+            primaryRunningDistro,
+          ),
+        );
+        if (!selection) {
+          toastManager.add(
+            stackedThreadToast({
+              type: "error",
+              title: "Could not add WSL project",
+              description: "Start the matching WSL backend, then choose the folder again.",
+            }),
+          );
+          return;
+        }
+        await handleAddProjectForEnvironment({
+          environmentId: selection.environmentId,
+          rawCwd: selection.linuxPath,
+          platform: "Linux",
+          currentProjectCwd: null,
+        });
+        return;
+      }
+      await handleAddProject(pickedPath);
+    },
+    [
+      browseDesktopInstanceId,
+      browseEnvironmentId,
+      browseEnvironmentPlatform,
+      canOpenProjectFromFileManager,
+      desktopLocalBootstraps,
+      environments,
+      fileManagerInitialPath,
+      handleAddProject,
+      handleAddProjectForEnvironment,
+      isPickingProjectFolder,
+      primaryEnvironmentId,
+    ],
+  );
 
   const inputAccessory =
     newProjectFlow !== null ? (
@@ -3454,14 +3475,28 @@ function OpenCommandPaletteDialog(props: {
           : undefined;
 
   const footerTrailing = canOpenProjectFromFileManager ? (
-    <CommandFooterAction
-      disabled={isPickingProjectFolder}
-      onClick={() => {
-        void handleOpenProjectFromFileManager();
-      }}
-    >
-      {`Open in ${fileManagerName}`}
-    </CommandFooterAction>
+    <>
+      {!isCloneDestinationStep &&
+      browseEnvironment?.serverConfig?.codeWorkspaces === true &&
+      window.desktopBridge?.pickWorkspace ? (
+        <CommandFooterAction
+          disabled={isPickingProjectFolder}
+          onClick={() => {
+            void handleOpenProjectFromFileManager(true);
+          }}
+        >
+          Open workspace file
+        </CommandFooterAction>
+      ) : null}
+      <CommandFooterAction
+        disabled={isPickingProjectFolder}
+        onClick={() => {
+          void handleOpenProjectFromFileManager();
+        }}
+      >
+        {`Open in ${fileManagerName}`}
+      </CommandFooterAction>
+    </>
   ) : null;
 
   return (

@@ -12,6 +12,7 @@ import { type VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
 import type {
   EnvironmentId,
   ProjectContentMatch,
+  ProjectId,
   ProjectEntry,
   ProjectEntryKind,
   ThreadId,
@@ -217,7 +218,9 @@ export function areProjectPathSearchTargetsEqual(
     left.cwd === right.cwd &&
     left.query === right.query &&
     left.kind === right.kind &&
-    left.imageOnly === right.imageOnly
+    left.imageOnly === right.imageOnly &&
+    left.threadId === right.threadId &&
+    left.projectId === right.projectId
   );
 }
 
@@ -234,8 +237,18 @@ export function useProjectPathSearch(
       query: target.query == null ? null : target.query.trim(),
       kind: target.kind,
       imageOnly: target.imageOnly,
+      threadId: target.threadId,
+      projectId: target.projectId,
     }),
-    [target.cwd, target.environmentId, target.imageOnly, target.kind, target.query],
+    [
+      target.cwd,
+      target.environmentId,
+      target.imageOnly,
+      target.kind,
+      target.query,
+      target.threadId,
+      target.projectId,
+    ],
   );
   const debouncedTarget = useDebouncedValue(normalizedTarget, PROJECT_PATH_SEARCH_DEBOUNCE_MS);
   const fileAccess = useFilesystemReadAccess(debouncedTarget.environmentId);
@@ -249,6 +262,11 @@ export function useProjectPathSearch(
           environmentId: debouncedTarget.environmentId,
           input: {
             cwd: debouncedTarget.cwd,
+            ...(debouncedTarget.threadId
+              ? { threadId: debouncedTarget.threadId }
+              : debouncedTarget.projectId
+                ? { projectId: debouncedTarget.projectId }
+                : {}),
             query: debouncedTarget.query,
             limit,
             ...(debouncedTarget.kind ? { kind: debouncedTarget.kind } : {}),
@@ -267,7 +285,12 @@ export function useProjectPathSearch(
       !hasTarget || fileAccess.isPending
         ? null
         : canReadFiles
-          ? result.error
+          ? (result.error ??
+            (result.data?.rootErrors?.length
+              ? result.data.rootErrors
+                  .map((entry) => `${entry.root.name}: ${entry.message}`)
+                  .join("\n")
+              : null))
           : (fileAccess.error ?? "This connection cannot search host files."),
     isPending:
       !areProjectPathSearchTargetsEqual(normalizedTarget, debouncedTarget) ||
@@ -283,6 +306,8 @@ export function useComposerPathSearch(target: ComposerPathSearchTarget) {
 }
 
 interface ProjectContentSearchTarget {
+  readonly threadId?: ThreadId;
+  readonly projectId?: ProjectId;
   readonly environmentId: EnvironmentId | null;
   readonly cwd: string | null;
   readonly query: string;
@@ -311,6 +336,11 @@ export function useProjectContentSearch(target: ProjectContentSearchTarget) {
           environmentId: target.environmentId,
           input: {
             cwd: target.cwd,
+            ...(target.threadId
+              ? { threadId: target.threadId }
+              : target.projectId
+                ? { projectId: target.projectId }
+                : {}),
             query: debouncedQuery,
             limit: PROJECT_CONTENT_SEARCH_LIMIT,
             caseSensitive: target.caseSensitive,
@@ -336,6 +366,7 @@ export function useProjectContentSearch(target: ProjectContentSearchTarget) {
       (canReadFiles && hasQuery && (query !== debouncedQuery || result.isPending)),
     hasQuery,
     truncated: result.data?.truncated ?? false,
+    rootErrors: result.data?.rootErrors,
     invalidRegex: target.useRegex && result.data?.regexFallbackError !== undefined,
   };
 }
@@ -358,6 +389,7 @@ export function useCheckpointDiff(
             threadId: target.threadId!,
             toTurnCount: target.toTurnCount!,
             ignoreWhitespace: target.ignoreWhitespace,
+            ...(target.repositoryId === undefined ? {} : { repositoryId: target.repositoryId }),
           },
         }
       : null;
@@ -370,6 +402,7 @@ export function useCheckpointDiff(
             fromTurnCount: target.fromTurnCount!,
             toTurnCount: target.toTurnCount!,
             ignoreWhitespace: target.ignoreWhitespace,
+            ...(target.repositoryId === undefined ? {} : { repositoryId: target.repositoryId }),
           },
         }
       : null;

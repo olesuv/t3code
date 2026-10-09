@@ -113,3 +113,22 @@ describe("review comment context parsing", () => {
     });
   });
 });
+
+it("retains repository-qualified identities and full paths for workspace file comments", () => {
+  const common = { id: "comment", startLine: 1, endLine: 1, text: "Change this", contents: "line" };
+  const first = buildFileReviewComment({
+    ...common,
+    filePath: "/meta/one/same.ts",
+    sectionId: JSON.stringify(["remote", "one", "same.ts"]),
+    sectionTitle: "One file comment",
+  });
+  const second = buildFileReviewComment({
+    ...common,
+    filePath: "/external/same.ts",
+    sectionId: JSON.stringify(["remote", "external", "same.ts"]),
+    sectionTitle: "External file comment",
+  });
+  expect(first.sectionId).not.toBe(second.sectionId);
+  expect(second.filePath).toBe("/external/same.ts");
+  expect(second.sectionTitle).toBe("External file comment");
+});

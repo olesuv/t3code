@@ -1,6 +1,8 @@
 import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import {
   type EnvironmentId,
+  type ThreadId,
+  type ProjectId,
   type ProjectListEntriesResult,
   ProjectReadFileError,
   type ProjectReadFileResult,
@@ -225,7 +227,11 @@ export function useProjectFilePickerQuery(
   cwd: string,
   query: string,
   limit: number,
-  options?: { readonly imageOnly?: boolean },
+  options?: {
+    readonly imageOnly?: boolean;
+    readonly threadId?: ThreadId;
+    readonly projectId?: ProjectId;
+  },
 ) {
   const search = useProjectPathSearch(
     {
@@ -234,6 +240,11 @@ export function useProjectFilePickerQuery(
       query,
       kind: "file",
       ...(options?.imageOnly ? { imageOnly: true } : {}),
+      ...(options?.threadId
+        ? { threadId: options.threadId }
+        : options?.projectId
+          ? { projectId: options.projectId }
+          : {}),
     },
     limit,
     { allowEmptyQuery: true },

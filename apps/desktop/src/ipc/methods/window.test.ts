@@ -24,12 +24,15 @@ import * as DesktopBackendManager from "../../backend/DesktopBackendManager.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
+import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
+import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import {
   getLocalEnvironmentBootstraps,
   getWindowFullscreenState,
   pasteAsText,
   pickProjectFavicon,
+  pickWorkspace,
   probeRemoteEditors,
 } from "./window.ts";
 
@@ -344,3 +347,33 @@ it.effect.skipIf(HostProcessPlatform.defaultValue() === "win32")(
       assert.include(editors, "webstorm");
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );
+
+it.effect("opens a dedicated workspace picker against the local project filesystem", () => {
+  const pickFiles = vi.fn(() => Effect.succeed(["/projects/team.code-workspace"]));
+  return Effect.gen(function* () {
+    const result = yield* pickWorkspace.handler({ initialPath: "/projects" });
+    assert.equal(result, "/projects/team.code-workspace");
+    assert.deepEqual(pickFiles.mock.calls, [
+      [
+        {
+          owner: Option.none(),
+          defaultPath: Option.some("/projects"),
+          multiple: false,
+          filters: [{ name: "Code workspace", extensions: ["code-workspace"] }],
+        },
+      ],
+    ]);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        DesktopAppSettings.layerTest(),
+        Layer.mock(DesktopEnvironment.DesktopEnvironment)({
+          resolvePickFolderDefaultPath: () => Option.some("/projects"),
+        } as unknown as DesktopEnvironment.DesktopEnvironment["Service"]),
+        Layer.mock(DesktopWslEnvironment.DesktopWslEnvironment)({}),
+        Layer.mock(ElectronWindow.ElectronWindow)({ focusedMainOrFirst: Effect.succeedNone }),
+        Layer.mock(ElectronDialog.ElectronDialog)({ pickFiles }),
+      ),
+    ),
+  );
+});

@@ -599,7 +599,7 @@ export const BranchToolbar = memo(function BranchToolbar({
   ref,
   environmentId,
   threadId,
-  showGitControls,
+  showGitControls: suppliedShowGitControls,
   draftId,
   onEnvModeChange,
   envMode,
@@ -637,8 +637,13 @@ export const BranchToolbar = memo(function BranchToolbar({
   const activeWorktreePath = forceNewWorktree
     ? null
     : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
-  const effectiveEnvMode = forceNewWorktree ? "worktree" : envMode;
-  const envModeLocked = envLocked || (serverThread !== null && activeWorktreePath !== null);
+  const isWorkspace = Boolean(
+    serverThread?.workspace ?? (serverThread ? null : activeProject?.workspace),
+  );
+  const showGitControls = suppliedShowGitControls || isWorkspace;
+  const effectiveEnvMode = isWorkspace ? "local" : forceNewWorktree ? "worktree" : envMode;
+  const envModeLocked =
+    isWorkspace || envLocked || (serverThread !== null && activeWorktreePath !== null);
 
   // "Previous worktree" hops a draft into the most recently active worktree
   // of this project — the "keep going where I just was" follow-up flow. Only

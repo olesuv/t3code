@@ -1,3 +1,4 @@
+import { useWorkspaceRepository } from "../hooks/useWorkspaceRepository";
 import { ThreadFind, ThreadFindCanvas, type ThreadFindControls } from "./chat/ThreadFindProvider";
 import { THREAD_FIND_BAR_RESERVED_HEIGHT } from "./chat/ThreadFindBar";
 import { usageLimitRecoveryBannerItem } from "./chat/UsageLimitRecoveryBanner";
@@ -256,6 +257,7 @@ import {
   selectThreadRightPanelState,
   type RightPanelSurface,
   useRightPanelStore,
+  workspaceFileSurfaceId,
 } from "../rightPanelStore";
 import {
   isPreviewSupportedInRuntime,
@@ -2631,11 +2633,11 @@ export default function ChatView(props: ChatViewProps) {
     ? (pendingFileSurfaceIdsByProject.get(activeProjectKey) ?? EMPTY_PENDING_FILE_SURFACE_IDS)
     : EMPTY_PENDING_FILE_SURFACE_IDS;
   const handleFilePendingChange = useCallback(
-    (relativePath: string, pending: boolean) => {
+    (relativePath: string, pending: boolean, rootId?: string) => {
       if (!activeProjectKey) return;
       setPendingFileSurfaceIdsByProject((currentByProject) => {
         const current = currentByProject.get(activeProjectKey) ?? EMPTY_PENDING_FILE_SURFACE_IDS;
-        const surfaceId = `file:${relativePath}`;
+        const surfaceId = workspaceFileSurfaceId(relativePath, rootId);
         if (current.has(surfaceId) === pending) return currentByProject;
         const next = new Set(current);
         if (pending) next.add(surfaceId);
@@ -4123,7 +4125,12 @@ export default function ChatView(props: ChatViewProps) {
         worktreePath: activeThread?.worktreePath ?? null,
       })
     : null;
-  const gitStatusCwd = activeThread?.worktreePath ?? gitCwd;
+  const gitWorkspace =
+    activeThread?.workspace ?? (isServerThread ? null : activeProject?.workspace);
+  const { repository: gitRepository } = useWorkspaceRepository(activeThreadRef, gitWorkspace);
+  const gitStatusCwd = gitWorkspace
+    ? (gitRepository?.checkoutPath ?? null)
+    : (activeThread?.worktreePath ?? gitCwd);
   const gitStatusQuery = useEnvironmentQuery(
     gitStatusCwd === null
       ? null
@@ -5582,9 +5589,9 @@ export default function ChatView(props: ChatViewProps) {
     if (!sessionStillExists) usePreviewMiniPlayerStore.getState().close(activeThreadRef);
   }, [activePreviewMiniPlayer, activeThreadRef, deviceState.sessions, deviceStateLoaded]);
   const openFileSurface = useCallback(
-    (relativePath: string) => {
+    (relativePath: string, rootId?: string) => {
       if (!activeThreadRef || !activeProject) return;
-      useRightPanelStore.getState().openFile(activeThreadRef, relativePath);
+      useRightPanelStore.getState().openFile(activeThreadRef, relativePath, undefined, rootId);
     },
     [activeProject, activeThreadRef],
   );
@@ -6940,9 +6947,13 @@ export default function ChatView(props: ChatViewProps) {
     activeThread.worktreePath === null &&
     !envLocked,
   );
-  const envMode: DraftThreadEnvMode = canOverrideServerThreadEnvMode
-    ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
-    : derivedEnvMode;
+  const workspaceThread =
+    activeThread?.workspace ?? (isServerThread ? null : activeProject?.workspace);
+  const envMode: DraftThreadEnvMode = workspaceThread
+    ? "local"
+    : canOverrideServerThreadEnvMode
+      ? (pendingServerThreadEnvMode ?? draftThread?.envMode ?? derivedEnvMode)
+      : derivedEnvMode;
   const activeThreadBranch =
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
       ? pendingServerThreadBranch
@@ -6959,7 +6970,7 @@ export default function ChatView(props: ChatViewProps) {
   });
   const localCheckoutBranchMismatch = useMemo(
     () =>
-      isServerThread
+      isServerThread && !gitWorkspace
         ? resolveLocalCheckoutBranchMismatch({
             effectiveEnvMode: envMode,
             activeWorktreePath,
@@ -6967,7 +6978,14 @@ export default function ChatView(props: ChatViewProps) {
             currentGitBranch: gitStatusQuery.data?.refName ?? null,
           })
         : null,
-    [activeThreadBranch, activeWorktreePath, envMode, gitStatusQuery.data?.refName, isServerThread],
+    [
+      activeThreadBranch,
+      activeWorktreePath,
+      envMode,
+      gitStatusQuery.data?.refName,
+      isServerThread,
+      gitWorkspace,
+    ],
   );
   const publishComposerOverlayHeight = useCallback(
     (height: number) => {
@@ -11084,6 +11102,14 @@ export default function ChatView(props: ChatViewProps) {
           }`}
           environmentId={activeThread.environmentId}
           cwd={activeWorkspaceRoot ?? ""}
+          {...(activeThread.workspace
+            ? { workspace: activeThread.workspace }
+            : activeProject?.workspace
+              ? { workspace: activeProject.workspace }
+              : {})}
+          {...(renderedRightPanelSurface.rootId
+            ? { rootId: renderedRightPanelSurface.rootId }
+            : {})}
           projectName={activeProject?.title ?? ""}
           threadRef={activeThreadRef}
           composerDraftTarget={composerDraftTarget}
@@ -12046,6 +12072,7 @@ export default function ChatView(props: ChatViewProps) {
             <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
             <Button
               variant="destructive"
+              disabled={Boolean(activeThread?.workspace)}
               onClick={() => {
                 if (!pendingRevert || pendingRevert.routeThreadKey !== routeThreadKey) return;
                 setPendingRevert(null);

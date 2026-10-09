@@ -559,7 +559,15 @@ export function buildBrowseGroups(input: {
     });
   }
 
-  return [{ value: "directories", label: "Directories", items }];
+  return [
+    {
+      value: "directories",
+      label: input.browseEntries.some((entry) => entry.kind === "workspace")
+        ? "Folders and workspaces"
+        : "Directories",
+      items,
+    },
+  ];
 }
 
 export function filterPinnedBrowseEntries(input: {

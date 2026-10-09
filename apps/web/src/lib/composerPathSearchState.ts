@@ -11,7 +11,12 @@ export function useComposerPathSearch(target: ComposerPathSearchTarget): Compose
   const state = useComposerPathSearchQuery(target);
   // A stable list lets the composer menu memo cache between renders.
   const entries = useMemo(
-    () => state.entries.map((entry) => ({ path: entry.path, kind: entry.kind })),
+    () =>
+      state.entries.map((entry) => ({
+        path: entry.path,
+        kind: entry.kind,
+        ...(entry.root ? { root: entry.root } : {}),
+      })),
     [state.entries],
   );
   return {

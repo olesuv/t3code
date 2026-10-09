@@ -83,6 +83,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const mixedMergeMethod = useScopedSettingsMixed(["pullRequestMergeMethod"]);
   const modelSource = useScopedSettingSource(["defaultModelSelection"]);
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
+  const workspaceProject =
+    isProjectScope && scope.members.some((member) => member.workspace != null);
   const unavailable = connectedEnvironments.length === 0;
   // File-backed keys show their effective value; the target already carries
   // the checkout's t3.json, and a null file here only fills the built-in.
@@ -222,7 +224,13 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
       }
       control={
         <Select
-          value={mixedWorkspace ? null : (effective?.defaultThreadEnvMode ?? null)}
+          value={
+            workspaceProject
+              ? "local"
+              : mixedWorkspace
+                ? null
+                : (effective?.defaultThreadEnvMode ?? null)
+          }
           onValueChange={(value) => {
             if (value === "local" || value === "worktree")
               updateSettings({ defaultThreadEnvMode: value });
@@ -241,7 +249,9 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
           </SelectTrigger>
           <SelectPopup align="end" alignItemWithTrigger={false}>
             <SelectItem value="local">{resolveEnvModeLabel("local")}</SelectItem>
-            <SelectItem value="worktree">{resolveEnvModeLabel("worktree")}</SelectItem>
+            <SelectItem value="worktree" disabled={workspaceProject}>
+              {resolveEnvModeLabel("worktree")}
+            </SelectItem>
           </SelectPopup>
         </Select>
       }
@@ -391,9 +401,11 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             id="automatic-pull"
             title="Automatically pull"
             description={
-              isProjectScope
-                ? "Keeps this project's default branch current when the checkout has no local changes or commits."
-                : "Keeps the default branch current when the checkout has no local changes or commits. Projects can override it."
+              workspaceProject
+                ? "Automatic pull is unavailable for workspace projects. Select a repository in Git to pull manually."
+                : isProjectScope
+                  ? "Keeps this project's default branch current when the checkout has no local changes or commits."
+                  : "Keeps the default branch current when the checkout has no local changes or commits. Projects can override it."
             }
             resetAction={
               settings.defaultAutoPull ? (
@@ -408,7 +420,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               <Switch
                 aria-label="Default automatic pull"
                 mixed={mixedAutoPull}
-                checked={mixedAutoPull ? false : settings.defaultAutoPull}
+                disabled={workspaceProject}
+                checked={workspaceProject || mixedAutoPull ? false : settings.defaultAutoPull}
                 onCheckedChange={(enabled) => updateSettings({ defaultAutoPull: enabled })}
               />
             }

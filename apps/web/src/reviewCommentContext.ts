@@ -57,6 +57,8 @@ export function formatReviewCommentFence(language: string, contents: string): st
 }
 
 export function buildFileReviewComment(input: {
+  sectionId?: string;
+  sectionTitle?: string;
   id: string;
   filePath: string;
   startLine: number;
@@ -69,8 +71,8 @@ export function buildFileReviewComment(input: {
   const selectedLines = input.contents.split("\n").slice(startLine - 1, endLine);
   return {
     id: input.id,
-    sectionId: `file:${input.filePath}`,
-    sectionTitle: "File comment",
+    sectionId: input.sectionId ?? `file:${input.filePath}`,
+    sectionTitle: input.sectionTitle ?? "File comment",
     filePath: input.filePath,
     startIndex: startLine - 1,
     endIndex: endLine - 1,

@@ -1,3 +1,5 @@
+import { useWorkspaceRepository } from "../hooks/useWorkspaceRepository";
+import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -151,30 +153,39 @@ export function BranchToolbarBranchSelector({
 
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
   const activeThreadBranch =
-    activeThreadBranchOverride !== undefined
-      ? activeThreadBranchOverride
-      : (serverThread?.branch ?? draftThread?.branch ?? null);
+    serverThread?.workspace || (!serverThread && activeProject?.workspace)
+      ? null
+      : activeThreadBranchOverride !== undefined
+        ? activeThreadBranchOverride
+        : (serverThread?.branch ?? draftThread?.branch ?? null);
   const activeWorktreePath = forceNewWorktree
     ? null
     : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
-  const activeProjectCwd = activeProject?.workspaceRoot ?? null;
+  const workspace = serverThread?.workspace ?? (serverThread ? null : activeProject?.workspace);
+  const { repository, selectRepository } = useWorkspaceRepository(threadRef, workspace);
+  const activeProjectCwd = workspace
+    ? (repository?.checkoutPath ?? null)
+    : (activeProject?.workspaceRoot ?? null);
   const branchCwd = activeWorktreePath ?? activeProjectCwd;
   const hasServerThread = serverThread !== null;
   const canUpdateThreadBranch = !hasServerThread || canOperateThread;
-  const canChangeThreadBranch = canWriteSourceControl && canUpdateThreadBranch;
-  const effectiveEnvMode =
-    effectiveEnvModeOverride ??
-    resolveEffectiveEnvMode({
-      activeWorktreePath,
-      hasServerThread,
-      draftThreadEnvMode: draftThread?.envMode,
-    });
+  const canChangeThreadBranch =
+    canWriteSourceControl && canUpdateThreadBranch && branchCwd !== null;
+  const effectiveEnvMode = workspace
+    ? "local"
+    : (effectiveEnvModeOverride ??
+      resolveEffectiveEnvMode({
+        activeWorktreePath,
+        hasServerThread,
+        draftThreadEnvMode: draftThread?.envMode,
+      }));
 
   // ---------------------------------------------------------------------------
   // Thread branch mutation (colocated — only this component calls it)
   // ---------------------------------------------------------------------------
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null, automatic = false) => {
+      if (workspace) return;
       if (
         !activeThreadId ||
         !activeProject ||
@@ -224,6 +235,7 @@ export function BranchToolbarBranchSelector({
       setDraftThreadContext,
       draftId,
       threadRef,
+      workspace,
       environmentId,
       effectiveEnvMode,
       draftThread?.environmentSelection,
@@ -440,11 +452,9 @@ export function BranchToolbarBranchSelector({
       return;
     }
 
-    const selectionTarget = resolveBranchSelectionTarget({
-      activeProjectCwd,
-      activeWorktreePath,
-      refName,
-    });
+    const selectionTarget = workspace
+      ? { checkoutCwd: activeProjectCwd, nextWorktreePath: null, reuseExistingWorktree: false }
+      : resolveBranchSelectionTarget({ activeProjectCwd, activeWorktreePath, refName });
 
     if (selectionTarget.reuseExistingWorktree) {
       setThreadBranch(refName.name, selectionTarget.nextWorktreePath);
@@ -697,114 +707,134 @@ export function BranchToolbarBranchSelector({
   }
 
   return (
-    <BranchPicker
-      items={branchPickerItems}
-      filteredItems={filteredBranchPickerItems}
-      open={isBranchMenuOpen}
-      onOpenChange={handleOpenChange}
-      onSelectItem={selectPickerItem}
-      value={resolvedActiveBranch}
-      query={branchQuery}
-      resultsQuery={deferredTrimmedBranchQuery}
-      onQueryChange={setBranchQuery}
-      hasNextPage={hasNextPage}
-      isFetchingNextPage={isFetchingNextPage}
-      onLoadNext={branchRefState.loadNext}
-      statusText={branchStatusText}
-      renderItem={renderPickerItem}
-      getItemType={(item) =>
-        item === checkoutPullRequestItemValue
-          ? "checkout-pull-request"
-          : item === createBranchItemValue
-            ? "create-branch"
-            : "branch"
-      }
-      originControl={
-        isSelectingWorktreeBase
-          ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
-          : undefined
-      }
-      popupProps={{
-        align: displayMode === "panel" ? "start" : "end",
-        side: displayMode === "panel" ? "bottom" : "top",
-        className: cn("flex flex-col", displayMode === "panel" ? "w-(--anchor-width)" : "w-80"),
-        ...(displayMode === "toolbar" ? composerFloatingLayerProps : {}),
-      }}
-    >
-      <div
-        className={cn(
-          "flex min-w-0",
-          displayMode === "panel" ? "w-full flex-col items-stretch" : "items-center gap-1",
-          className,
-        )}
-      >
-        {displayMode !== "panel" ? (
-          <ThreadPullRequestBadgeControl
-            render={<ComposerControl size="xs" />}
-            badge={prBadge}
-            pullRequests={serverThread?.pullRequests ?? []}
-            number={prNumber}
-            url={prUrl}
-            status={displayedPrStatus}
-            onOpenList={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
-            onOpenPullRequest={(event, targetUrl = prUrl) => {
-              if (targetUrl) openPrLink(event, targetUrl);
-            }}
-          />
-        ) : null}
-        <span
-          className="flex min-w-0"
-          onMouseDownCapture={(event) => {
-            if (event.button !== 0 || event.ctrlKey) {
-              event.stopPropagation();
-            }
-          }}
-          onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
+    <>
+      {workspace ? (
+        <Select
+          value={repository?.id ?? "choose"}
+          onValueChange={(value) => selectRepository(value === "choose" ? null : value)}
         >
-          <ComboboxTrigger
-            render={
-              displayMode === "panel" ? (
-                <ThreadDetailsControl part="select" />
-              ) : (
-                <ComposerControl size="xs" />
-              )
-            }
-            className="min-w-0 max-w-full active:scale-100"
-            disabled={isInitialBranchesLoadPending || isBranchActionPending}
-          >
-            <GitBranchIcon
-              className={cn(
-                "size-3 shrink-0 opacity-70",
-                displayMode === "panel" && THREAD_DETAILS_PANEL_ICON_CLASS,
-              )}
+          <SelectTrigger size="sm" aria-label="Repository for Git actions">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectPopup>
+            <SelectItem value="choose">Choose repository</SelectItem>
+            {workspace.repositories.map((entry) => (
+              <SelectItem key={entry.id} value={entry.id}>
+                {entry.name}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      ) : null}
+      <BranchPicker
+        items={branchPickerItems}
+        filteredItems={filteredBranchPickerItems}
+        open={isBranchMenuOpen}
+        onOpenChange={handleOpenChange}
+        onSelectItem={selectPickerItem}
+        value={resolvedActiveBranch}
+        query={branchQuery}
+        resultsQuery={deferredTrimmedBranchQuery}
+        onQueryChange={setBranchQuery}
+        hasNextPage={hasNextPage}
+        isFetchingNextPage={isFetchingNextPage}
+        onLoadNext={branchRefState.loadNext}
+        statusText={branchStatusText}
+        renderItem={renderPickerItem}
+        getItemType={(item) =>
+          item === checkoutPullRequestItemValue
+            ? "checkout-pull-request"
+            : item === createBranchItemValue
+              ? "create-branch"
+              : "branch"
+        }
+        originControl={
+          isSelectingWorktreeBase
+            ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
+            : undefined
+        }
+        popupProps={{
+          align: displayMode === "panel" ? "start" : "end",
+          side: displayMode === "panel" ? "bottom" : "top",
+          className: cn("flex flex-col", displayMode === "panel" ? "w-(--anchor-width)" : "w-80"),
+          ...(displayMode === "toolbar" ? composerFloatingLayerProps : {}),
+        }}
+      >
+        <div
+          className={cn(
+            "flex min-w-0",
+            displayMode === "panel" ? "w-full flex-col items-stretch" : "items-center gap-1",
+            className,
+          )}
+        >
+          {displayMode !== "panel" ? (
+            <ThreadPullRequestBadgeControl
+              render={<ComposerControl size="xs" />}
+              badge={prBadge}
+              pullRequests={serverThread?.pullRequests ?? []}
+              number={prNumber}
+              url={prUrl}
+              status={displayedPrStatus}
+              onOpenList={() => useRightPanelStore.getState().open(threadRef, "pull-requests")}
+              onOpenPullRequest={(event, targetUrl = prUrl) => {
+                if (targetUrl) openPrLink(event, targetUrl);
+              }}
             />
-            <ComposerContextLabel displayMode={displayMode}>
-              <MiddleTruncate value={triggerLabel} className="w-full" />
-            </ComposerContextLabel>
-            {displayMode !== "panel" ? (
-              <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
-            ) : null}
-          </ComboboxTrigger>
-        </span>
-        {displayMode === "panel" && prNumber !== undefined && prUrl !== undefined ? (
-          <ThreadDetailsPrRows
-            threadRef={threadRef}
-            links={serverThread?.pullRequests ?? []}
-            currentLink={currentLinkedPr}
-            onOpenLink={openPrLink}
-            environmentId={environmentId}
-            pr={displayedPr}
-            number={prNumber}
-            reference={currentLinkedPr}
-            status={displayedPrStatus}
-            project={activeProject}
-            label={panelPrLabel}
-            openAriaLabel={prUrl ?? "Open pull request"}
-            onOpen={(event) => openPrLink(event, prUrl)}
-            onActed={() => branchStatusQuery.refresh()}
-          />
-        ) : null}
-      </div>
-    </BranchPicker>
+          ) : null}
+          <span
+            className="flex min-w-0"
+            onMouseDownCapture={(event) => {
+              if (event.button !== 0 || event.ctrlKey) {
+                event.stopPropagation();
+              }
+            }}
+            onContextMenu={(event) => handleBranchContextMenu(event, resolvedActiveBranch)}
+          >
+            <ComboboxTrigger
+              render={
+                displayMode === "panel" ? (
+                  <ThreadDetailsControl part="select" />
+                ) : (
+                  <ComposerControl size="xs" />
+                )
+              }
+              className="min-w-0 max-w-full active:scale-100"
+              disabled={isInitialBranchesLoadPending || isBranchActionPending}
+            >
+              <GitBranchIcon
+                className={cn(
+                  "size-3 shrink-0 opacity-70",
+                  displayMode === "panel" && THREAD_DETAILS_PANEL_ICON_CLASS,
+                )}
+              />
+              <ComposerContextLabel displayMode={displayMode}>
+                <MiddleTruncate value={triggerLabel} className="w-full" />
+              </ComposerContextLabel>
+              {displayMode !== "panel" ? (
+                <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+              ) : null}
+            </ComboboxTrigger>
+          </span>
+          {displayMode === "panel" && prNumber !== undefined && prUrl !== undefined ? (
+            <ThreadDetailsPrRows
+              threadRef={threadRef}
+              links={serverThread?.pullRequests ?? []}
+              currentLink={currentLinkedPr}
+              onOpenLink={openPrLink}
+              environmentId={environmentId}
+              pr={displayedPr}
+              number={prNumber}
+              reference={currentLinkedPr}
+              status={displayedPrStatus}
+              project={activeProject}
+              label={panelPrLabel}
+              openAriaLabel={prUrl ?? "Open pull request"}
+              onOpen={(event) => openPrLink(event, prUrl)}
+              onActed={() => branchStatusQuery.refresh()}
+            />
+          ) : null}
+        </div>
+      </BranchPicker>
+    </>
   );
 }

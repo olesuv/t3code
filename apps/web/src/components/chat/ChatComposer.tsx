@@ -2572,6 +2572,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     environmentId,
     cwd: isPathTrigger ? gitCwd : null,
     query: isPathTrigger ? pathTriggerQuery : null,
+    ...(_isServerThread && activeThread
+      ? { threadId: activeThread.id }
+      : activeThread?.projectId
+        ? { projectId: activeThread.projectId }
+        : {}),
   });
   const compactSlashCommandAvailable =
     composerTrigger?.kind === "slash-command" &&
@@ -2659,11 +2664,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           query: composerTrigger.query,
         }),
         ...workspaceEntries.entries.map((entry) => ({
-          id: `path:${entry.kind}:${entry.path}`,
+          id: `path:${entry.root?.id ?? ""}:${entry.kind}:${entry.path}`,
           type: "path" as const,
-          path: entry.path,
+          path: entry.root ? `${entry.root.path.replace(/[\\/]$/, "")}/${entry.path}` : entry.path,
           pathKind: entry.kind,
-          label: basenameOfPath(entry.path),
+          label: entry.root
+            ? `${entry.root.name}/${basenameOfPath(entry.path)}`
+            : basenameOfPath(entry.path),
           description: entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
         })),
       ];
@@ -3983,7 +3990,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const { snapshot, trigger } = resolveActiveComposerTrigger();
       if (!trigger) return;
       if (item.type === "path") {
-        const replacement = `${serializeComposerFileLink(item.path)} `;
+        const replacement = `${serializeComposerFileLink(item.path, item.label)} `;
         const replacementRangeEnd = extendReplacementRangeForTrailingSpace(
           snapshot.value,
           trigger.rangeEnd,

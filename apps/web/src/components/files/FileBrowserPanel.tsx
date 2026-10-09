@@ -3,7 +3,7 @@ import type {
   ContextMenuItem as TreeContextMenuItem,
   ContextMenuOpenContext as TreeContextMenuOpenContext,
 } from "@pierre/trees";
-import type { EnvironmentId, ProjectEntry } from "@t3tools/contracts";
+import type { EnvironmentId, ProjectEntry, WorkspaceFolder } from "@t3tools/contracts";
 import { FileTree, useFileTree, useFileTreeSearch, useFileTreeSelector } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@t3tools/shared/composerTrigger";
 import { ChevronsDownUp, ChevronsUpDown } from "lucide";
@@ -30,6 +30,7 @@ import { useDirectoryEntries } from "./useDirectoryEntries";
 import { useProjectPathSearch } from "~/state/queries";
 
 interface FileBrowserPanelProps {
+  root?: WorkspaceFolder;
   environmentId: EnvironmentId;
   cwd: string;
   projectName: string;
@@ -98,6 +99,7 @@ function FileSearchField(props: {
 export default function FileBrowserPanel({
   environmentId,
   cwd,
+  root,
   projectName,
   selectedPath,
   selectedPathRevealId,
@@ -172,7 +174,10 @@ export default function FileBrowserPanel({
       return;
     }
     const relativePath = item.path.replace(/\/$/, "");
-    const mention = serializeComposerFileLink(relativePath);
+    const mention = serializeComposerFileLink(
+      root ? `${root.path.replace(/[\\/]$/, "")}/${relativePath}` : relativePath,
+      root ? `${root.name}/${relativePath}` : undefined,
+    );
     const pointer = contextMenuPointerRef.current;
     const pointerIsFresh = pointer !== null && performance.now() - pointer.at < 1000;
     const anchorRect = context.anchorElement.getBoundingClientRect();
@@ -248,8 +253,17 @@ export default function FileBrowserPanel({
     () =>
       createFileTreeDragMentionController({
         deselect: (path) => treeModelRef.current?.getItem(path)?.deselect(),
+        ...(root
+          ? {
+              mention: (path: string) =>
+                serializeComposerFileLink(
+                  `${root.path.replace(/[\\/]$/, "")}/${path.replace(/\/+$/, "")}`,
+                  `${root.name}/${path.replace(/\/+$/, "")}`,
+                ),
+            }
+          : {}),
       }),
-    [],
+    [root],
   );
   const { model } = useFileTree({
     composition: {

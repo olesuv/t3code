@@ -53,6 +53,7 @@ const testState = vi.hoisted(() => {
       },
     ) {
       storedDraft = nextStoredDraft;
+      this.workspace = false;
       targetSettings = {
         defaultThreadEnvMode: workspaceDefaults.envMode,
         newWorktreesStartFromOrigin: workspaceDefaults.startFromOrigin,
@@ -68,6 +69,7 @@ const testState = vi.hoisted(() => {
       });
     },
     router,
+    workspace: false,
   };
 });
 
@@ -160,6 +162,14 @@ vi.mock("../state/entities", () => ({
     {
       id: "project-remote",
       environmentId: "environment-ssh",
+      workspace: testState.workspace
+        ? {
+            filePath: "/remote/project/team.code-workspace",
+            workspaceRoot: "/remote/project",
+            folders: [],
+            repositories: [],
+          }
+        : null,
       workspaceRoot: "/remote/project",
       defaultThreadEnvMode: null,
       defaultModelSelection: null,
@@ -285,5 +295,26 @@ describe.each([
         expect.objectContaining({ envMode: "worktree", startFromOrigin }),
       );
     },
+  );
+});
+
+it("starts workspace drafts in existing checkouts despite worktree defaults or explicit worktree shortcuts", async () => {
+  testState.reset(null, { envMode: "worktree", startFromOrigin: true });
+  testState.workspace = true;
+  const opened = await useNewThreadHandler()(
+    { environmentId: "environment-ssh", projectId: "project-remote" } as never,
+    { envMode: "worktree", worktreePath: "/remote/other", branch: "feature" },
+  );
+  expect(opened).not.toBeNull();
+  expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+    "remote-project",
+    expect.anything(),
+    opened!.draftId,
+    expect.objectContaining({
+      envMode: "local",
+      worktreePath: null,
+      branch: null,
+      startFromOrigin: false,
+    }),
   );
 });

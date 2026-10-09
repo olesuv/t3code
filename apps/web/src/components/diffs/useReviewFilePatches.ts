@@ -1,6 +1,6 @@
 import { RegistryContext, useAtomValue } from "@effect/atom-react";
 import type { FileDiffMetadata } from "@pierre/diffs";
-import type { EnvironmentId, ReviewDiffPreviewSource } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, ReviewDiffPreviewSource } from "@t3tools/contracts";
 import * as AsyncResult from "effect/reactivity/AsyncResult";
 import * as Atom from "effect/reactivity/Atom";
 import {
@@ -17,6 +17,8 @@ import { reviewEnvironment } from "~/state/review";
 
 export function useReviewFilePatches({
   environmentId,
+  threadId,
+  repositoryId,
   cwd,
   source,
   baseRef,
@@ -26,6 +28,8 @@ export function useReviewFilePatches({
   preview,
 }: {
   environmentId: EnvironmentId | undefined;
+  threadId?: ThreadId | undefined;
+  repositoryId?: string | undefined;
   cwd: string | undefined;
   source: ReviewDiffPreviewSource | null;
   baseRef: string | null;
@@ -37,6 +41,8 @@ export function useReviewFilePatches({
   const registry = useContext(RegistryContext);
   const scope = JSON.stringify([
     environmentId,
+    threadId,
+    repositoryId,
     cwd,
     source?.kind,
     source?.diffHash,
@@ -71,6 +77,8 @@ export function useReviewFilePatches({
                     cacheKey: scope,
                     request: {
                       cwd,
+                      ...(threadId === undefined ? {} : { threadId }),
+                      ...(repositoryId === undefined ? {} : { repositoryId }),
                       ...(baseRef ? { baseRef } : {}),
                       ignoreWhitespace,
                       file: {
@@ -83,7 +91,18 @@ export function useReviewFilePatches({
                 }),
               };
             }),
-    [environmentId, cwd, source, files, indices, scope, baseRef, ignoreWhitespace],
+    [
+      environmentId,
+      threadId,
+      repositoryId,
+      cwd,
+      source,
+      files,
+      indices,
+      scope,
+      baseRef,
+      ignoreWhitespace,
+    ],
   );
   const previousPreview = useRef({ scope, revision, queries: [] as typeof queries });
   useEffect(() => {

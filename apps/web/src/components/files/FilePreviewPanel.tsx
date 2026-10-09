@@ -1,3 +1,11 @@
+import { workspaceFileRoots, type CodeWorkspace } from "@t3tools/contracts";
+import {
+  Select,
+  SelectItem,
+  SelectPopup,
+  SelectTrigger,
+  SelectValue,
+} from "~/components/ui/select";
 import { Spinner } from "~/components/ui/spinner";
 import {
   AuthPreviewOperateScope,
@@ -57,7 +65,7 @@ import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { PREFERRED_HIGHLIGHTER } from "~/lib/syntaxHighlighting";
 import { cn } from "~/lib/utils";
 import type { ChatFileAttachment } from "~/types";
-import { isAbsolutePath } from "@t3tools/shared/path";
+import { isAbsolutePath, workspaceRelativeFilePath } from "@t3tools/shared/path";
 import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { ScrollArea } from "~/components/ui/scroll-area";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
@@ -117,6 +125,8 @@ import {
 } from "./projectFilesQueryState";
 
 interface FilePreviewPanelProps {
+  workspace?: CodeWorkspace;
+  rootId?: string;
   environmentId: EnvironmentId;
   cwd: string;
   projectName: string;
@@ -128,8 +138,8 @@ interface FilePreviewPanelProps {
   availableEditors: ReadonlyArray<EditorId>;
   revealLine: number | null;
   revealRequestId: number;
-  onOpenFile: (relativePath: string) => void;
-  onPendingChange: (relativePath: string, pending: boolean) => void;
+  onOpenFile: (relativePath: string, rootId?: string) => void;
+  onPendingChange: (relativePath: string, pending: boolean, rootId?: string) => void;
   selectedFilePending: boolean;
   workspaceMutationId: string | null;
 }
@@ -657,6 +667,7 @@ function useEditableAfterHighlight(file: FileContents) {
 }
 
 interface EditableFileSurfaceProps {
+  commentContext?: { filePath: string; sectionId: string; sectionTitle: string } | undefined;
   environmentId: EnvironmentId;
   cwd: string;
   relativePath: string;
@@ -675,6 +686,7 @@ interface FileSelectionOverride {
 }
 
 function EditableFileSurface({
+  commentContext,
   environmentId,
   cwd,
   relativePath,
@@ -755,6 +767,7 @@ function EditableFileSurface({
             buildFileReviewComment({
               id: entry.id,
               filePath: relativePath,
+              ...commentContext,
               startLine: entry.startLine,
               endLine: entry.endLine,
               text: entry.text,
@@ -764,7 +777,15 @@ function EditableFileSurface({
         }
       }
     },
-    [addReviewComment, composerDraftTarget, cwd, environmentId, relativePath, saveCoordinator],
+    [
+      addReviewComment,
+      composerDraftTarget,
+      cwd,
+      environmentId,
+      relativePath,
+      commentContext,
+      saveCoordinator,
+    ],
   );
 
   const removeAnnotationEntry = useCallback(
@@ -793,6 +814,7 @@ function EditableFileSurface({
           buildFileReviewComment({
             id: entry.id,
             filePath: relativePath,
+            ...commentContext,
             startLine: entry.startLine,
             endLine: entry.endLine,
             text,
@@ -819,6 +841,7 @@ function EditableFileSurface({
       contents,
       lineAnnotations,
       relativePath,
+      commentContext,
       setSelectedRange,
     ],
   );
@@ -1027,7 +1050,9 @@ function initialExplorerOpen(): boolean {
 
 export default function FilePreviewPanel({
   environmentId,
-  cwd,
+  cwd: defaultCwd,
+  workspace,
+  rootId,
   projectName,
   relativePath: requestedPath,
   attachment,
@@ -1037,13 +1062,36 @@ export default function FilePreviewPanel({
   availableEditors,
   revealLine,
   revealRequestId,
-  onOpenFile,
-  onPendingChange,
+  onOpenFile: openFile,
+  onPendingChange: pendingChange,
   selectedFilePending,
   workspaceMutationId,
 }: FilePreviewPanelProps) {
+  const roots = useMemo(() => (workspace ? workspaceFileRoots(workspace) : []), [workspace]);
+  const root = rootId
+    ? roots.find((entry) => entry.id === rootId)
+    : ((requestedPath && isAbsolutePath(requestedPath)
+        ? [...roots]
+            .sort((a, b) => b.path.length - a.path.length)
+            .find((entry) => workspaceRelativeFilePath(requestedPath, entry.path) !== null)
+        : undefined) ?? roots.find((entry) => entry.path === defaultCwd));
+  const cwd = root?.path ?? defaultCwd;
+  const resolvedPath =
+    requestedPath && root
+      ? (workspaceRelativeFilePath(requestedPath, root.path) ?? requestedPath)
+      : requestedPath;
   const relativePath =
-    attachment === undefined ? resolveFilePreviewPath(requestedPath, cwd) : requestedPath;
+    attachment === undefined ? resolveFilePreviewPath(resolvedPath, cwd) : requestedPath;
+  const onOpenFile = useCallback((path: string) => openFile(path, root?.id), [openFile, root?.id]);
+  const onPendingChange = useCallback(
+    (path: string, pending: boolean) =>
+      pendingChange(
+        requestedPath && isAbsolutePath(requestedPath) ? requestedPath : path,
+        pending,
+        rootId,
+      ),
+    [pendingChange, requestedPath, rootId],
+  );
   // A draft's composer target is its draft id; a thread the server knows is a ref.
   const draft = typeof composerDraftTarget === "string";
   const { resolvedTheme } = useTheme();
@@ -1080,7 +1128,7 @@ export default function FilePreviewPanel({
     environmentId,
     cwd,
     relativePath,
-    attachment === undefined && relativePath !== null,
+    attachment === undefined && relativePath !== null && !(rootId && !root),
   );
   const attemptedPath = file.readError?.resolvedPath ?? file.readError?.operationPath;
   // A chat link cannot tell a folder from a file, so a folder arrives here as
@@ -1250,6 +1298,27 @@ export default function FilePreviewPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      {workspace && !attachment ? (
+        <div className="border-b px-3 py-2">
+          <Select
+            value={root?.id ?? roots[0]?.id ?? ""}
+            onValueChange={(value) => {
+              if (value) openFile(".", value);
+            }}
+          >
+            <SelectTrigger size="sm" aria-label="Workspace folder">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectPopup>
+              {roots.map((folder) => (
+                <SelectItem key={folder.id} value={folder.id}>
+                  {folder.name}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </div>
+      ) : null}
       {relativePath && attachment === undefined ? (
         <div className={FILE_SURFACE_SUBHEADER_CLASS} data-surface-subheader>
           <ScrollArea
@@ -1461,7 +1530,29 @@ export default function FilePreviewPanel({
             ) : (
               <DiffWorkerPoolProvider>
                 <EditableFileSurface
-                  key={`${relativePath}:${resolvedTheme}`}
+                  key={`${environmentId}:${cwd}:${root?.id ?? ""}:${relativePath}:${resolvedTheme}`}
+                  commentContext={
+                    root && absolutePath
+                      ? {
+                          filePath: absolutePath,
+                          sectionId: JSON.stringify([
+                            environmentId,
+                            workspace?.repositories
+                              .filter(
+                                (repository) =>
+                                  workspaceRelativeFilePath(
+                                    absolutePath,
+                                    repository.checkoutPath,
+                                  ) !== null,
+                              )
+                              .sort((a, b) => b.checkoutPath.length - a.checkoutPath.length)[0]
+                              ?.id ?? root.id,
+                            relativePath,
+                          ]),
+                          sectionTitle: `${root.name} file comment`,
+                        }
+                      : undefined
+                  }
                   environmentId={environmentId}
                   cwd={cwd}
                   relativePath={relativePath}
@@ -1490,7 +1581,8 @@ export default function FilePreviewPanel({
               key={`${environmentId}:${cwd}`}
               environmentId={environmentId}
               cwd={cwd}
-              projectName={projectName}
+              projectName={root?.name ?? projectName}
+              {...(root ? { root } : {})}
               selectedPath={relativePath}
               selectedPathRevealId={revealRequestId}
               onOpenFile={onOpenFile}
