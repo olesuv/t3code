@@ -14,8 +14,9 @@ export interface ThreadCheckpointSummary {
   readonly runId: RunId;
   readonly checkpointTurnCount: number;
   readonly checkpointRef: CheckpointRef;
-  readonly status: "ready" | "missing" | "error" | "stale";
+  readonly status: "ready" | "missing" | "error" | "stale" | "partial";
   readonly files: ReadonlyArray<{
+    readonly repositoryId?: string | undefined;
     readonly path: string;
     readonly kind: string;
     readonly additions: number;

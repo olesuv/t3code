@@ -39,6 +39,7 @@ it.effect.each([
   "errored-provider",
   "shared-provider",
   "conversation",
+  "workspace",
 ] as const)("preserves overlapping workspace files, owner=%s", (owner) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -87,6 +88,16 @@ it.effect.each([
         id: threadId,
         projectId,
         worktreePath: cwd,
+        ...(owner === "workspace"
+          ? {
+              workspace: {
+                filePath: "/workspace/all.code-workspace",
+                workspaceRoot: cwd,
+                folders: [],
+                repositories: [],
+              },
+            }
+          : {}),
         activeProviderThreadId: providerThreadId,
         modelSelection: { instanceId, model: "test" },
       },

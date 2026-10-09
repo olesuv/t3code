@@ -14,6 +14,7 @@
  * @module CheckpointStore
  */
 import { VcsUnsupportedOperationError, type CheckpointRef } from "@t3tools/contracts";
+import * as NodePath from "node:path";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -25,6 +26,7 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 export interface CaptureCheckpointInput {
   readonly cwd: string;
   readonly checkpointRef: CheckpointRef;
+  readonly excludePaths?: ReadonlyArray<string>;
 }
 
 export interface RestoreCheckpointInput {
@@ -52,7 +54,10 @@ export class CheckpointStore extends Context.Service<
   CheckpointStore,
   {
     /** Check whether cwd is inside a Git worktree. */
-    readonly isGitRepository: (cwd: string) => Effect.Effect<boolean, CheckpointStoreError>;
+    readonly isGitRepository: (
+      cwd: string,
+      requireRoot?: boolean,
+    ) => Effect.Effect<boolean, CheckpointStoreError>;
 
     /**
      * Capture a checkpoint commit and store it at the provided checkpoint ref.
@@ -117,10 +122,17 @@ export const make = Effect.gen(function* () {
     return handle.driver.checkpoints satisfies VcsCheckpointOps;
   });
 
-  const isGitRepository: CheckpointStore["Service"]["isGitRepository"] = (cwd) =>
+  const isGitRepository: CheckpointStore["Service"]["isGitRepository"] = (cwd, requireRoot) =>
     vcsRegistry
       .detect({ cwd, requestedKind: "git" })
-      .pipe(Effect.map((repository) => repository !== null));
+      .pipe(
+        Effect.map(
+          (handle) =>
+            handle !== null &&
+            (!requireRoot ||
+              NodePath.resolve(handle.repository.rootPath) === NodePath.resolve(cwd)),
+        ),
+      );
 
   const captureCheckpoint: CheckpointStore["Service"]["captureCheckpoint"] = Effect.fn(
     "captureCheckpoint",

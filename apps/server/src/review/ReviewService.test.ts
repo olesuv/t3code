@@ -9,6 +9,7 @@ import * as ServerConfig from "../config.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ReviewService from "./ReviewService.ts";
 
 function layer(input: {
@@ -19,6 +20,11 @@ function layer(input: {
   readonly previousWorktreesDirectories?: ReadonlyArray<string>;
 }) {
   return ReviewService.layer.pipe(
+    Layer.provide(
+      Layer.mock(ProjectionStore.ProjectionStoreV2)({
+        getThreadShell: () => Effect.succeed(null),
+      }),
+    ),
     Layer.provide(
       Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
         get: () => Effect.die("unexpected VCS registry get"),

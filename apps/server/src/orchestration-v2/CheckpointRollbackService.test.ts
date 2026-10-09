@@ -350,7 +350,10 @@ it.effect.each([
   { restoreFiles: false, shared: "worktree" },
   { restoreFiles: true, shared: "historical" },
   { restoreFiles: false, shared: "none", targetOrdinal: 1 },
-])("rewinds safely with %s", ({ restoreFiles, shared, targetOrdinal = 0 }) => {
+  { restoreFiles: false, shared: "none", workspaceStatus: "partial" },
+  { restoreFiles: false, shared: "none", workspaceStatus: "missing", targetOrdinal: 1 },
+  { restoreFiles: true, shared: "none", workspaceStatus: "ready" },
+])("rewinds safely with %s", ({ restoreFiles, shared, targetOrdinal = 0, workspaceStatus }) => {
   const threadId = ThreadId.make("rewind-files");
   const providerThreadId = ProviderThreadId.make("rewind-provider");
   const providerSessionId = ProviderSessionId.make("rewind-session");
@@ -374,6 +377,16 @@ it.effect.each([
   };
   const projection = {
     thread: {
+      ...(workspaceStatus === undefined
+        ? {}
+        : {
+            workspace: {
+              filePath: "/meta/project.code-workspace",
+              workspaceRoot: process.cwd(),
+              folders: [],
+              repositories: [],
+            },
+          }),
       worktreePath: shared === "root" ? null : process.cwd(),
       activeProviderThreadId: providerThreadId,
       modelSelection: { instanceId, model: "test" },
@@ -391,7 +404,12 @@ it.effect.each([
     nodes: [],
     attempts: [1, 2, 3].map((ordinal) => ({ id: `attempt-${ordinal}`, runId: `run-${ordinal}` })),
     checkpoints: [
-      { id: checkpointId, scopeId, status: "ready", appRunOrdinal: targetOrdinal || null },
+      {
+        id: checkpointId,
+        scopeId,
+        status: workspaceStatus ?? "ready",
+        appRunOrdinal: targetOrdinal || null,
+      },
     ],
     checkpointScopes: [{ id: scopeId, cwd: process.cwd() }],
     runs: [1, 2, 3].map((ordinal) => ({
@@ -472,7 +490,7 @@ it.effect.each([
   );
   return Effect.gen(function* () {
     const service = yield* CheckpointRollbackService.CheckpointRollbackServiceV2;
-    if (restoreFiles && shared !== "none") {
+    if (restoreFiles && (shared !== "none" || workspaceStatus !== undefined)) {
       const error = yield* Effect.flip(
         service.execute({ threadId, providerThreadId, checkpointId, scopeId, restoreFiles }),
       );

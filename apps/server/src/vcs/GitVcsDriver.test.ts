@@ -1190,3 +1190,67 @@ it.effect("GitVcsDriver flushes checkpoint objects and refs to disk before publi
     ),
   );
 });
+
+it.effect(
+  "workspace capture excludes independent children and preserves tracked gitlink changes",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const driver = yield* GitVcsDriver.makeVcsDriverShape();
+      const cwd = yield* fs.makeTempDirectoryScoped({ prefix: "t3-workspace-capture-" });
+      const { git, checkpointRef } = yield* makeCheckpointFixture(driver, cwd);
+      yield* fs.makeDirectory(path.join(cwd, "child"));
+      yield* fs.writeFileString(path.join(cwd, "child", "old.txt"), "previously in parent\n");
+      yield* git(["add", "child"]);
+      yield* git(["commit", "-m", "tracked child directory"]);
+      for (const child of ["child", "submodule"]) {
+        yield* git(["init", child]);
+        yield* git([
+          "-C",
+          child,
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@test.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "first",
+        ]);
+      }
+      const oldHead = (yield* git(["-C", "submodule", "rev-parse", "HEAD"])).stdout.trim();
+      yield* git(["update-index", "--add", "--cacheinfo", `160000,${oldHead},submodule`]);
+      yield* git(["commit", "-m", "submodule pointer"]);
+      yield* git([
+        "-C",
+        "submodule",
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@test.com",
+        "commit",
+        "--allow-empty",
+        "-m",
+        "next",
+      ]);
+      const newHead = (yield* git(["-C", "submodule", "rev-parse", "HEAD"])).stdout.trim();
+      yield* fs.writeFileString(path.join(cwd, "child", "old.txt"), "child-only changes\n");
+      const index = yield* fs.readFile(path.join(cwd, ".git", "index"));
+      yield* driver.checkpoints.captureCheckpoint({
+        cwd,
+        checkpointRef,
+        excludePaths: ["child", "submodule"],
+      });
+      assert.equal((yield* git(["ls-tree", "-r", checkpointRef, "--", "child"])).stdout, "");
+      assert.equal(
+        (yield* git(["ls-tree", checkpointRef, "--", "submodule"])).stdout,
+        `160000 commit ${newHead}\tsubmodule\n`,
+      );
+      assert.deepEqual(yield* fs.readFile(path.join(cwd, ".git", "index")), index);
+      assert.equal(
+        yield* fs.readFileString(path.join(cwd, "child", "old.txt")),
+        "child-only changes\n",
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerGitContract)),
+);

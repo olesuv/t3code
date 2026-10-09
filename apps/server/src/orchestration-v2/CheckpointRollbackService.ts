@@ -137,7 +137,8 @@ export const layer: Layer.Layer<
         checkpoint === undefined ||
         scope === undefined ||
         checkpoint.scopeId !== scope.id ||
-        checkpoint.status !== "ready"
+        (checkpoint.status !== "ready" &&
+          !(projection.thread.workspace && input.restoreFiles === false))
       ) {
         return yield* new CheckpointRollbackExecutionError({
           reason: "rollback-target-invalid",
@@ -270,8 +271,7 @@ export const layer: Layer.Layer<
         (candidate) =>
           candidate.scopeId === scope.id &&
           candidate.appRunOrdinal !== null &&
-          candidate.appRunOrdinal > targetOrdinal &&
-          candidate.status === "ready",
+          candidate.appRunOrdinal > targetOrdinal,
       );
       if (staleCheckpoints.length > 0) {
         yield* checkpoints.deleteStaleRefs({ scope, checkpoints: staleCheckpoints });

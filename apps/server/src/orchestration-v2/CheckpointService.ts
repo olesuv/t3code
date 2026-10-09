@@ -8,6 +8,8 @@ import {
   ProviderThreadId,
   RunId,
   ThreadId,
+  type WorkspaceRepository,
+  type OrchestrationV2RepositoryCheckpoint,
 } from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -18,6 +20,7 @@ import * as Hex from "effect/encoding/Hex";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as NodePath from "node:path";
 
 import { parseTurnDiffFilesFromNumstat } from "../checkpointing/Diffs.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
@@ -123,6 +126,7 @@ export interface CheckpointServiceV2Shape {
     readonly providerThreadId: ProviderThreadId;
     readonly cwd: string;
     readonly createdAt: DateTime.Utc;
+    readonly workspaceRepositories?: ReadonlyArray<WorkspaceRepository> | undefined;
   }) => Effect.Effect<OrchestrationV2CheckpointScope, CheckpointServiceV2Error>;
   readonly ensureScope: (
     scope: OrchestrationV2CheckpointScope,
@@ -192,6 +196,7 @@ function makeRootRunScope(input: {
   readonly providerThreadId: ProviderThreadId;
   readonly cwd: string;
   readonly createdAt: DateTime.Utc;
+  readonly workspaceRepositories?: ReadonlyArray<WorkspaceRepository> | undefined;
 }) {
   return Effect.gen(function* () {
     const scopeId = yield* input.idAllocator.allocate.checkpointScope({
@@ -209,6 +214,9 @@ function makeRootRunScope(input: {
       ordinalWithinParent: 0,
       advancesAppRunCount: true,
       cwd: input.cwd,
+      ...(input.workspaceRepositories === undefined
+        ? {}
+        : { workspaceRepositories: input.workspaceRepositories }),
       createdAt: input.createdAt,
     } satisfies OrchestrationV2CheckpointScope;
   });
@@ -226,6 +234,7 @@ function makeCheckpoint(input: {
   readonly status: OrchestrationV2Checkpoint["status"];
   readonly files: OrchestrationV2Checkpoint["files"];
   readonly capturedAt: DateTime.Utc;
+  readonly repositories?: ReadonlyArray<OrchestrationV2RepositoryCheckpoint>;
 }): OrchestrationV2Checkpoint {
   return {
     id: input.id,
@@ -240,6 +249,7 @@ function makeCheckpoint(input: {
     status: input.status,
     files: input.files,
     capturedAt: input.capturedAt,
+    ...(input.repositories === undefined ? {} : { repositories: input.repositories }),
   };
 }
 
@@ -262,12 +272,169 @@ export const layer: Layer.Layer<
     const isGitCheckpointable = (cwd: string) =>
       checkpointStore.isGitRepository(cwd).pipe(Effect.orElseSucceed(() => false));
 
+    const repositoryRefFor = (
+      scope: OrchestrationV2CheckpointScope,
+      repository: WorkspaceRepository,
+      ordinalWithinScope: number,
+    ) =>
+      checkpointRefFor({
+        scopeId: CheckpointScopeId.make(`${scope.id}:repository:${repository.id}`),
+        ordinalWithinScope,
+      });
+
+    const repositoryExclusions = (
+      scope: OrchestrationV2CheckpointScope,
+      repository: WorkspaceRepository,
+    ) =>
+      (scope.workspaceRepositories ?? []).flatMap((other) => {
+        const relative = NodePath.relative(repository.checkoutPath, other.checkoutPath);
+        return relative &&
+          !NodePath.isAbsolute(relative) &&
+          relative !== ".." &&
+          !relative.startsWith(`..${NodePath.sep}`)
+          ? [relative]
+          : [];
+      });
+
+    const workspaceManifest = (
+      scope: OrchestrationV2CheckpointScope,
+      ordinal: number,
+      mode: "baseline" | "materialize" | "capture",
+    ) =>
+      Effect.forEach(
+        scope.workspaceRepositories ?? [],
+        (repository) =>
+          withWorkspaceLock(
+            repository.checkoutPath,
+            Effect.gen(function* () {
+              const ref = yield* repositoryRefFor(scope, repository, ordinal);
+              const result = yield* Effect.gen(function* () {
+                if (!(yield* checkpointStore.isGitRepository(repository.checkoutPath, true))) {
+                  return {
+                    repository,
+                    ref,
+                    status: "missing",
+                    files: [],
+                  } satisfies OrchestrationV2RepositoryCheckpoint;
+                }
+                let exists = yield* checkpointStore.hasCheckpointRef({
+                  cwd: repository.checkoutPath,
+                  checkpointRef: ref,
+                });
+                if (!exists && mode !== "materialize") {
+                  yield* checkpointStore.captureCheckpoint({
+                    cwd: repository.checkoutPath,
+                    checkpointRef: ref,
+                    excludePaths: repositoryExclusions(scope, repository),
+                  });
+                  exists = true;
+                }
+                if (!exists)
+                  return {
+                    repository,
+                    ref,
+                    status: "missing",
+                    files: [],
+                  } satisfies OrchestrationV2RepositoryCheckpoint;
+                if (mode !== "capture" || ordinal === 0)
+                  return {
+                    repository,
+                    ref,
+                    status: "ready",
+                    files: [],
+                  } satisfies OrchestrationV2RepositoryCheckpoint;
+                const previousRef = yield* repositoryRefFor(scope, repository, ordinal - 1);
+                if (
+                  !(yield* checkpointStore.hasCheckpointRef({
+                    cwd: repository.checkoutPath,
+                    checkpointRef: previousRef,
+                  }))
+                ) {
+                  return {
+                    repository,
+                    ref,
+                    status: "ready",
+                    summaryError: "baseline-missing",
+                    files: [],
+                  } satisfies OrchestrationV2RepositoryCheckpoint;
+                }
+                return yield* checkpointStore
+                  .diffCheckpoints({
+                    cwd: repository.checkoutPath,
+                    fromCheckpointRef: previousRef,
+                    toCheckpointRef: ref,
+                    fallbackFromToHead: false,
+                    ignoreWhitespace: false,
+                    format: "numstat",
+                  })
+                  .pipe(
+                    Effect.map((diff): OrchestrationV2RepositoryCheckpoint => ({
+                      repository,
+                      ref,
+                      status: "ready",
+                      files: parseTurnDiffFilesFromNumstat(diff).map((file) => ({
+                        repositoryId: repository.id,
+                        path: file.path,
+                        kind: "modified",
+                        additions: file.additions,
+                        deletions: file.deletions,
+                      })),
+                    })),
+                    Effect.orElseSucceed((): OrchestrationV2RepositoryCheckpoint => ({
+                      repository,
+                      ref,
+                      status: "ready",
+                      summaryError: "diff-failed",
+                      files: [],
+                    })),
+                  );
+              }).pipe(
+                Effect.catch((cause) =>
+                  Effect.logWarning("workspace repository checkpoint failed", {
+                    repositoryId: repository.id,
+                    ordinal,
+                    cause: String(cause),
+                  }).pipe(
+                    Effect.as({
+                      repository,
+                      ref,
+                      status: "error",
+                      files: [],
+                    } satisfies OrchestrationV2RepositoryCheckpoint),
+                  ),
+                ),
+              );
+              return result;
+            }),
+          ),
+        { concurrency: 4 },
+      );
+
+    const manifestStatus = (
+      repositories: ReadonlyArray<OrchestrationV2RepositoryCheckpoint>,
+    ): OrchestrationV2Checkpoint["status"] => {
+      if (
+        repositories.every(
+          (repository) => repository.status === "ready" && !repository.summaryError,
+        )
+      )
+        return "ready";
+      if (repositories.some((repository) => repository.status === "ready")) return "partial";
+      return repositories.some((repository) => repository.status === "error") ? "error" : "missing";
+    };
+
     const ensureScope: CheckpointServiceV2Shape["ensureScope"] = (scope) => Effect.succeed(scope);
 
     const captureBaseline: CheckpointServiceV2Shape["captureBaseline"] = (input) =>
       withWorkspaceLock(
-        input.scope.cwd,
+        input.scope.workspaceRepositories === undefined
+          ? input.scope.cwd
+          : `workspace:${input.scope.id}`,
         Effect.gen(function* () {
+          if (input.scope.workspaceRepositories !== undefined) {
+            yield* workspaceManifest(input.scope, input.ordinalWithinScope, "baseline");
+            return;
+          }
           if (!(yield* isGitCheckpointable(input.scope.cwd))) {
             return;
           }
@@ -303,7 +470,9 @@ export const layer: Layer.Layer<
     const materializeBaselineCheckpoint: CheckpointServiceV2Shape["materializeBaselineCheckpoint"] =
       (input) =>
         withWorkspaceLock(
-          input.scope.cwd,
+          input.scope.workspaceRepositories === undefined
+            ? input.scope.cwd
+            : `workspace:${input.scope.id}`,
           Effect.gen(function* () {
             const checkpointRef = yield* checkpointRefFor({
               scopeId: input.scope.id,
@@ -313,6 +482,27 @@ export const layer: Layer.Layer<
               scopeId: input.scope.id,
               ordinalWithinScope: input.ordinalWithinScope,
             });
+            if (input.scope.workspaceRepositories !== undefined) {
+              const repositories = yield* workspaceManifest(
+                input.scope,
+                input.ordinalWithinScope,
+                "materialize",
+              );
+              return makeCheckpoint({
+                id: checkpointId,
+                scope: input.scope,
+                runId: null,
+                nodeId: input.scope.nodeId,
+                parentCheckpointId: null,
+                ordinalWithinScope: input.ordinalWithinScope,
+                appRunOrdinal: null,
+                ref: checkpointRef,
+                status: manifestStatus(repositories),
+                files: [],
+                repositories,
+                capturedAt: input.scope.createdAt,
+              });
+            }
             const checkpointable = yield* isGitCheckpointable(input.scope.cwd);
             const available = checkpointable
               ? yield* checkpointStore
@@ -356,7 +546,9 @@ export const layer: Layer.Layer<
 
     const capture: CheckpointServiceV2Shape["capture"] = (input) =>
       withWorkspaceLock(
-        input.scope.cwd,
+        input.scope.workspaceRepositories === undefined
+          ? input.scope.cwd
+          : `workspace:${input.scope.id}`,
         Effect.gen(function* () {
           const checkpointId = yield* checkpointIdForScopeOrdinal(idAllocator, {
             scopeId: input.scope.id,
@@ -373,6 +565,27 @@ export const layer: Layer.Layer<
             scopeId: input.scope.id,
             ordinalWithinScope: input.ordinalWithinScope,
           });
+          if (input.scope.workspaceRepositories !== undefined) {
+            const repositories = yield* workspaceManifest(
+              input.scope,
+              input.ordinalWithinScope,
+              "capture",
+            );
+            return makeCheckpoint({
+              id: checkpointId,
+              scope: input.scope,
+              runId: input.runId,
+              nodeId: input.nodeId,
+              parentCheckpointId,
+              ordinalWithinScope: input.ordinalWithinScope,
+              appRunOrdinal: input.appRunOrdinal,
+              ref: checkpointRef,
+              status: manifestStatus(repositories),
+              files: repositories.flatMap((repository) => repository.files),
+              repositories,
+              capturedAt: input.capturedAt,
+            });
+          }
           const previousCheckpointRef = yield* checkpointRefFor({
             scopeId: input.scope.id,
             ordinalWithinScope: Math.max(0, input.ordinalWithinScope - 1),
@@ -495,8 +708,20 @@ export const layer: Layer.Layer<
 
     const restore: CheckpointServiceV2Shape["restore"] = (input) =>
       withWorkspaceLock(
-        input.scope.cwd,
+        input.scope.workspaceRepositories === undefined
+          ? input.scope.cwd
+          : `workspace:${input.scope.id}`,
         Effect.gen(function* () {
+          if (
+            input.scope.workspaceRepositories !== undefined ||
+            input.checkpoint.repositories !== undefined
+          ) {
+            return yield* new CheckpointRestoreError({
+              scopeId: input.scope.id,
+              checkpointId: input.checkpoint.id,
+              cause: "Workspace checkpoints support conversation-only rewind.",
+            });
+          }
           if (input.checkpoint.status !== "ready") {
             return yield* new CheckpointRestoreError({
               scopeId: input.scope.id,
@@ -532,10 +757,40 @@ export const layer: Layer.Layer<
 
     const deleteStaleRefs: CheckpointServiceV2Shape["deleteStaleRefs"] = (input) =>
       withWorkspaceLock(
-        input.scope.cwd,
-        checkpointStore.deleteCheckpointRefs({
-          cwd: input.scope.cwd,
-          checkpointRefs: input.checkpoints.map((checkpoint) => checkpoint.ref),
+        input.scope.workspaceRepositories === undefined
+          ? input.scope.cwd
+          : `workspace:${input.scope.id}`,
+        Effect.gen(function* () {
+          const groups = new Map<string, CheckpointRef[]>();
+          for (const checkpoint of input.checkpoints) {
+            if (checkpoint.repositories !== undefined) {
+              for (const entry of checkpoint.repositories) {
+                const refs = groups.get(entry.repository.checkoutPath) ?? [];
+                refs.push(entry.ref);
+                groups.set(entry.repository.checkoutPath, refs);
+              }
+            } else {
+              const refs = groups.get(input.scope.cwd) ?? [];
+              refs.push(checkpoint.ref);
+              groups.set(input.scope.cwd, refs);
+            }
+          }
+          yield* Effect.forEach(
+            [...groups],
+            ([cwd, refs]) =>
+              Effect.gen(function* () {
+                if (
+                  input.scope.workspaceRepositories !== undefined &&
+                  !(yield* checkpointStore.isGitRepository(cwd, true))
+                )
+                  return;
+                yield* checkpointStore.deleteCheckpointRefs({
+                  cwd,
+                  checkpointRefs: [...new Set(refs)],
+                });
+              }),
+            { concurrency: 4 },
+          );
         }),
       ).pipe(
         Effect.mapError(

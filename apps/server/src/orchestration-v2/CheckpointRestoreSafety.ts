@@ -13,7 +13,7 @@ export const SHARED_WORKSPACE_RESTORE_MESSAGE =
 // again before provider rollback so a newly shared worktree is rejected too.
 export const isCheckpointRestoreIsolated = Effect.fn("orchestrationV2.isCheckpointRestoreIsolated")(
   function* (
-    thread: Pick<OrchestrationV2AppThread, "id" | "worktreePath">,
+    thread: Pick<OrchestrationV2AppThread, "id" | "worktreePath" | "workspace">,
     scope: Pick<OrchestrationV2CheckpointScope, "cwd">,
     dependencies: {
       readonly fileSystem: FileSystem.FileSystem;
@@ -22,6 +22,7 @@ export const isCheckpointRestoreIsolated = Effect.fn("orchestrationV2.isCheckpoi
       readonly path: Path.Path;
     },
   ) {
+    if (thread.workspace) return false;
     const { fileSystem, projections, projects, path } = dependencies;
     const contains = (parent: string, child: string) => {
       const relative = path.relative(parent, child);

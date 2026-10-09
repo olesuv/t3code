@@ -2866,6 +2866,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       if (ref === null) return { stdout: "", stdoutTruncated: false, files: [] };
       const stat = yield* readStats(ref, env);
       if (stat.files.length === 0) return { stdout: "", stdoutTruncated: false, files: [] };
+      if (input.summaryOnly && !input.file)
+        return { stdout: "", stdoutTruncated: false, files: stat.files };
       const patch = yield* executeGit(
         "GitVcsDriver.getReviewDiffPreview.patch",
         cwd,

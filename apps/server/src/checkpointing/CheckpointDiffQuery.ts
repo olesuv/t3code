@@ -8,6 +8,7 @@
  */
 import {
   OrchestrationGetTurnDiffResult,
+  type RepositoryCheckpointDiff,
   type OrchestrationGetFullThreadDiffInput,
   type OrchestrationGetFullThreadDiffResult,
   type OrchestrationGetTurnDiffInput,
@@ -31,6 +32,7 @@ import {
   type CheckpointServiceError,
 } from "./Errors.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
+import { parseTurnDiffFilesFromNumstat } from "./Diffs.ts";
 
 /** Service tag for checkpoint diff queries. */
 export class CheckpointDiffQuery extends Context.Service<
@@ -117,7 +119,7 @@ export const make = Effect.gen(function* () {
       );
       const readyCheckpoints = projection.checkpoints.filter(
         (checkpoint) =>
-          checkpoint.status === "ready" &&
+          (checkpoint.status === "ready" || checkpoint.repositories !== undefined) &&
           checkpoint.appRunOrdinal !== null &&
           checkpoint.runId !== null &&
           completedRunIds.has(checkpoint.runId),
@@ -155,6 +157,92 @@ export const make = Effect.gen(function* () {
           operation,
           threadId: input.threadId,
         });
+      }
+
+      if (toCheckpoint.repositories !== undefined) {
+        if (
+          input.repositoryId !== undefined &&
+          !toCheckpoint.repositories.some((entry) => entry.repository.id === input.repositoryId)
+        ) {
+          return yield* new CheckpointDiffResultInvalidError({
+            operation,
+            threadId: input.threadId,
+          });
+        }
+        const fromCheckpoint = projection.checkpoints.find(
+          (checkpoint) =>
+            checkpoint.scopeId === toScope.id &&
+            (input.fromTurnCount === 0
+              ? checkpoint.appRunOrdinal === null && checkpoint.runId === null
+              : checkpoint.appRunOrdinal === input.fromTurnCount),
+        );
+        const repositories = yield* Effect.forEach(
+          toCheckpoint.repositories.filter(
+            (entry) =>
+              input.repositoryId === undefined || entry.repository.id === input.repositoryId,
+          ),
+          (toEntry) =>
+            Effect.gen(function* () {
+              const repository = toEntry.repository;
+              const fromEntry = fromCheckpoint?.repositories?.find(
+                (entry) =>
+                  entry.repository.id === repository.id &&
+                  entry.repository.checkoutPath === repository.checkoutPath,
+              );
+              if (toEntry.status !== "ready" || fromEntry?.status !== "ready") {
+                return {
+                  repository,
+                  status: "missing",
+                  error: "A repository snapshot is unavailable for this range.",
+                  files: [],
+                } satisfies RepositoryCheckpointDiff;
+              }
+              return yield* Effect.gen(function* () {
+                if (!(yield* checkpointStore.isGitRepository(repository.checkoutPath, true))) {
+                  return {
+                    repository,
+                    status: "missing",
+                    error: "The repository checkout is unavailable.",
+                    files: [],
+                  } satisfies RepositoryCheckpointDiff;
+                }
+                const options = {
+                  cwd: repository.checkoutPath,
+                  fromCheckpointRef: fromEntry.ref,
+                  toCheckpointRef: toEntry.ref,
+                  fallbackFromToHead: false,
+                  ignoreWhitespace,
+                };
+                const summary = yield* checkpointStore.diffCheckpoints({
+                  ...options,
+                  format: "numstat",
+                });
+                const files = parseTurnDiffFilesFromNumstat(summary).map((file) => ({
+                  ...file,
+                  repositoryId: repository.id,
+                }));
+                const diff =
+                  input.repositoryId === undefined
+                    ? undefined
+                    : yield* checkpointStore.diffCheckpoints(options);
+                return {
+                  repository,
+                  status: "ready",
+                  files,
+                  ...(diff === undefined ? {} : { diff }),
+                } satisfies RepositoryCheckpointDiff;
+              }).pipe(
+                Effect.orElseSucceed((): RepositoryCheckpointDiff => ({
+                  repository,
+                  status: "error",
+                  error: "Failed to read this repository's checkpoint diff.",
+                  files: [],
+                })),
+              );
+            }),
+          { concurrency: 4 },
+        );
+        return { ...buildTurnDiffResult(input, ""), repositories };
       }
 
       // The root scope is shared by every run in this thread. Its runId
@@ -240,6 +328,7 @@ export const make = Effect.gen(function* () {
       fromTurnCount: 0,
       toTurnCount: input.toTurnCount,
       ignoreWhitespace,
+      ...(input.repositoryId === undefined ? {} : { repositoryId: input.repositoryId }),
     });
     if (!isTurnDiffResult(turnDiff)) {
       return yield* new CheckpointDiffResultInvalidError({

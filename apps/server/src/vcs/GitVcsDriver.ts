@@ -961,6 +961,30 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
           }
         }
 
+        const workspaceExclusions: string[] = [];
+        for (const excluded of input.excludePaths ?? []) {
+          const indexed = yield* execute({
+            operation,
+            cwd: input.cwd,
+            args: ["ls-files", "--stage", "-z", "--", `:(literal)${excluded}`],
+            env: commitEnv,
+          });
+          // A tracked Git submodule belongs to the parent as a gitlink. Let
+          // Git capture its pointer; independent child checkouts are excluded.
+          if (
+            indexed.stdout
+              .split("\0")
+              .some((line) => line.startsWith("160000 ") && line.endsWith(`\t${excluded}`))
+          )
+            continue;
+          workspaceExclusions.push(`:(exclude,literal)${excluded}`);
+          yield* execute({
+            operation,
+            cwd: input.cwd,
+            args: ["rm", "-r", "--cached", "--ignore-unmatch", "--", `:(literal)${excluded}`],
+            env: commitEnv,
+          });
+        }
         const stageFiles = (exclusions: ReadonlyArray<string>) =>
           execute({
             operation,
@@ -975,6 +999,7 @@ export const makeVcsDriverShape = Effect.fn("makeGitVcsDriverShape")(function* (
               "--",
               ".",
               ...exclusions,
+              ...workspaceExclusions,
             ],
             env: commitEnv,
           });
