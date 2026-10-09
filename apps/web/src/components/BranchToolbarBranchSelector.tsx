@@ -1,5 +1,5 @@
 import { useWorkspaceRepository } from "../hooks/useWorkspaceRepository";
-import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "./ui/select";
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from "./ui/menu";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
@@ -18,7 +18,7 @@ import {
   type VcsRef,
   type ThreadId,
 } from "@t3tools/contracts";
-import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
+import { ChevronDownIcon, FolderGit2Icon, GitBranchIcon } from "lucide-react";
 import {
   useCallback,
   useDeferredValue,
@@ -719,22 +719,48 @@ export function BranchToolbarBranchSelector({
   return (
     <>
       {workspace ? (
-        <Select
-          items={repositoryItems}
-          value={repository?.id ?? "choose"}
-          onValueChange={(value) => selectRepository(value === "choose" ? null : value)}
-        >
-          <SelectTrigger size="sm" aria-label="Repository for Git actions">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectPopup>
-            {repositoryItems.map((entry) => (
-              <SelectItem key={entry.value} value={entry.value}>
-                {entry.label}
-              </SelectItem>
-            ))}
-          </SelectPopup>
-        </Select>
+        <Menu>
+          <MenuTrigger
+            render={
+              displayMode === "panel" ? (
+                <ThreadDetailsControl part="select" />
+              ) : (
+                <ComposerControl size="xs" />
+              )
+            }
+            aria-label="Repository for Git actions"
+          >
+            <FolderGit2Icon
+              className={cn(
+                "size-3 shrink-0 opacity-70",
+                displayMode === "panel" && THREAD_DETAILS_PANEL_ICON_CLASS,
+              )}
+            />
+            <ComposerContextLabel displayMode={displayMode}>
+              <MiddleTruncate value={repository?.name ?? "Choose repository"} className="w-full" />
+            </ComposerContextLabel>
+            {displayMode !== "panel" ? (
+              <ChevronDownIcon className="size-3 shrink-0 opacity-50" />
+            ) : null}
+          </MenuTrigger>
+          <MenuPopup
+            align={displayMode === "panel" ? "start" : "end"}
+            side={displayMode === "panel" ? "bottom" : "top"}
+            className={displayMode === "panel" ? "w-(--anchor-width)" : undefined}
+            {...(displayMode === "toolbar" ? composerFloatingLayerProps : {})}
+          >
+            <MenuRadioGroup
+              value={repository?.id ?? "choose"}
+              onValueChange={(value) => selectRepository(value === "choose" ? null : value)}
+            >
+              {repositoryItems.map((entry) => (
+                <MenuRadioItem key={entry.value} value={entry.value} closeOnClick>
+                  {entry.label}
+                </MenuRadioItem>
+              ))}
+            </MenuRadioGroup>
+          </MenuPopup>
+        </Menu>
       ) : null}
       <BranchPicker
         items={branchPickerItems}
