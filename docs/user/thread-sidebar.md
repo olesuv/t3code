@@ -13,6 +13,37 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
+### Open a workspace project
+
+Open a `.code-workspace` file through the project picker to share one project and
+its threads across the file's folders. On desktop, use **Open workspace file**;
+when connected remotely, browse or enter the file's path on that environment.
+The CLI also accepts it with `t3 project add /path/team.code-workspace` or
+`t3 /path/team.code-workspace`.
+
+Relative folder paths resolve from the workspace file. Named folders, external
+folders, and folders without Git are supported. The containing Git repository
+and each listed folder's repository appear in review; unlisted child repositories
+are not discovered automatically. Editor settings, tasks, and extensions are ignored.
+
+In Files, choose a named folder to browse or search it. File search and `@` mentions
+include the folder name, so identically named files remain distinguishable.
+
+Review opens in **All repositories**. Select a repository to inspect its changes,
+or choose a turn or **Full thread** to review history. A failed repository capture
+is shown separately while successful repository history remains available.
+
+After changing the file, use **Reload workspace** in the project's settings.
+The new folder list applies to future threads; existing threads keep the folders
+and repositories they started with. Workspace projects use their existing
+checkouts, with no worktree creation, worktree handoff, or automatic project-wide
+pull. Choose a repository in the Git controls before committing, pushing, pulling,
+or changing branches. Rewind changes the conversation only and never restores workspace files.
+
+Codex, Claude, OpenCode, and Antigravity support external workspace folders.
+Providers without additional-folder support can use nested folders, but T3 Code
+rejects an external-folder turn before starting it.
+
 ### Start without a project
 
 A thread does not need a project. To start one without a project, click **or
