@@ -46,6 +46,15 @@ export const isCheckpointRestoreIsolated = Effect.fn("orchestrationV2.isCheckpoi
           const providerContext = yield* projections.getThreadProviderContext(otherThread.id);
           const paths = [
             otherThread.worktreePath,
+            ...(otherThread.workspace
+              ? [
+                  otherThread.workspace.workspaceRoot,
+                  ...otherThread.workspace.folders.map((folder) => folder.path),
+                  ...otherThread.workspace.repositories.map(
+                    (repository) => repository.checkoutPath,
+                  ),
+                ]
+              : []),
             ...other.checkpointScopes.map((candidate) => candidate.cwd),
             // A failed turn can leave an errored session with a live event stream.
             // A session shared across threads keeps the cwd it was opened with,

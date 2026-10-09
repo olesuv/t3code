@@ -40,6 +40,11 @@ it.effect.each([
   "shared-provider",
   "conversation",
   "workspace",
+  "workspace-folder",
+  "workspace-repository",
+  "workspace-root",
+  "archived-workspace-folder",
+  "workspace-sibling",
 ] as const)("preserves overlapping workspace files, owner=%s", (owner) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -72,6 +77,22 @@ it.effect.each([
       id: otherId,
       projectId,
       deletedAt: null,
+      ...(owner.startsWith("workspace-") || owner === "archived-workspace-folder"
+        ? {
+            workspace: {
+              filePath: path.join(sibling, "all.code-workspace"),
+              workspaceRoot: owner === "workspace-root" ? cwd : sibling,
+              folders:
+                owner === "workspace-folder" || owner === "archived-workspace-folder"
+                  ? [{ id: "external", name: "External", path: nested }]
+                  : [],
+              repositories:
+                owner === "workspace-repository"
+                  ? [{ id: "external", name: "External", checkoutPath: cwd }]
+                  : [],
+            },
+          }
+        : {}),
       worktreePath:
         owner === "project"
           ? null
@@ -125,8 +146,8 @@ it.effect.each([
               Effect.succeed({
                 schemaVersion: 1,
                 snapshotSequence: 0,
-                threads: owner === "archived-nested" ? [] : ([otherThread] as never),
-                archivedThreads: owner === "archived-nested" ? ([otherThread] as never) : [],
+                threads: owner.startsWith("archived-") ? [] : ([otherThread] as never),
+                archivedThreads: owner.startsWith("archived-") ? ([otherThread] as never) : [],
               }),
             getCheckpointContext: () =>
               Effect.succeed({
@@ -191,9 +212,13 @@ it.effect.each([
       Effect.provide(layerTest),
     );
     const restoreFiles = owner !== "conversation";
-    const rejected = !["sibling", "stopped-provider", "shared-provider", "conversation"].includes(
-      owner,
-    );
+    const rejected = ![
+      "sibling",
+      "workspace-sibling",
+      "stopped-provider",
+      "shared-provider",
+      "conversation",
+    ].includes(owner);
     if (rejected) {
       const error = yield* service
         .execute({ threadId, providerThreadId, checkpointId, scopeId, restoreFiles })
