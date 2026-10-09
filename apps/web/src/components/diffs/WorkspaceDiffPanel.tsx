@@ -133,7 +133,7 @@ export function WorkspaceDiffPanel(props: {
           <SelectTrigger size="sm" aria-label="Diff repository">
             <SelectValue />
           </SelectTrigger>
-          <SelectPopup>
+          <SelectPopup alignItemWithTrigger={false}>
             {repositoryItems.map((entry) => (
               <SelectItem key={entry.value} value={entry.value}>
                 {entry.label}
@@ -159,7 +159,7 @@ export function WorkspaceDiffPanel(props: {
             <SelectTrigger size="sm" aria-label="Diff scope">
               <SelectValue />
             </SelectTrigger>
-            <SelectPopup>
+            <SelectPopup alignItemWithTrigger={false}>
               {scopeItems.map((entry) => (
                 <SelectItem key={entry.value} value={entry.value}>
                   {entry.label}
