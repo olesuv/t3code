@@ -13,7 +13,7 @@ import { useEnvironmentQuery } from "../../state/query";
 import { reviewEnvironment } from "../../state/review";
 import { DiffStatLabel } from "../chat/DiffStatLabel";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
-import { DiffPanelLoadingState, type DiffPanelMode } from "../DiffPanelShell";
+import type { DiffPanelMode } from "../DiffPanelShell";
 
 /** Repository groups carry their own file namespace; patches load after selection. */
 export function WorkspaceDiffPanel(props: {
@@ -93,6 +93,15 @@ export function WorkspaceDiffPanel(props: {
       }));
   const error = turn ? history.error : preview.error;
   const pending = turn ? history.isPending : preview.isPending;
+  const loading = fileAccess.isPending || pending;
+  const visibleGroups =
+    groups ??
+    workspace.repositories.map((repository) => ({
+      repository,
+      error: undefined,
+      incomplete: false,
+      files: [],
+    }));
   const repositoryItems = [
     { value: "all", label: "All repositories" },
     ...workspace.repositories.map((entry) => ({ value: entry.id, label: entry.name })),
@@ -174,16 +183,18 @@ export function WorkspaceDiffPanel(props: {
           {props.renderRepository(repository, fullThread, () => setFullThread(false))}
         </div>
       ) : (
-        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-          {fileAccess.isPending || pending ? (
-            <DiffPanelLoadingState label="Loading repository changes…" />
+        <div className="min-h-0 flex-1 overflow-y-auto p-3" aria-busy={loading}>
+          {loading ? (
+            <span className="sr-only" role="status">
+              Loading repository changes…
+            </span>
           ) : !fileAccess.canReadFiles ? (
             <p>File access is required to review workspace changes.</p>
           ) : error ? (
             <p role="alert">{error}</p>
           ) : null}
-          {fileAccess.canReadFiles &&
-            groups?.map((group) => {
+          {(fileAccess.canReadFiles || fileAccess.isPending) &&
+            visibleGroups.map((group) => {
               const totals = group.files.reduce(
                 (total, file) => ({
                   additions: total.additions + file.additions,
@@ -195,7 +206,8 @@ export function WorkspaceDiffPanel(props: {
                 <button
                   key={group.repository.id}
                   type="button"
-                  className="mb-4 flex w-full cursor-pointer flex-col gap-1 rounded-lg px-3 py-2 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
+                  className="mb-4 flex w-full cursor-pointer flex-col gap-1 rounded-lg px-3 py-2 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-64 disabled:hover:bg-transparent"
+                  disabled={loading && groups === undefined}
                   onClick={() => setRepositoryId(group.repository.id)}
                 >
                   <span className="flex w-full min-w-0 items-center gap-2">
