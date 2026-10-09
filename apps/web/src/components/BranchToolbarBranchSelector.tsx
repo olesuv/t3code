@@ -163,6 +163,7 @@ export function BranchToolbarBranchSelector({
     : (serverThread?.worktreePath ?? draftThread?.worktreePath ?? null);
   const workspace = serverThread?.workspace ?? (serverThread ? null : activeProject?.workspace);
   const { repository, selectRepository } = useWorkspaceRepository(threadRef, workspace);
+  const needsRepositorySelection = Boolean(workspace && !repository);
   const activeProjectCwd = workspace
     ? (repository?.checkoutPath ?? null)
     : (activeProject?.workspaceRoot ?? null);
@@ -569,12 +570,16 @@ export function BranchToolbarBranchSelector({
   // ---------------------------------------------------------------------------
   // Combobox / list plumbing
   // ---------------------------------------------------------------------------
-  const handleOpenChange = useCallback((open: boolean) => {
-    setIsBranchMenuOpen(open);
-    if (!open) {
-      setBranchQuery("");
-    }
-  }, []);
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (open && needsRepositorySelection) return;
+      setIsBranchMenuOpen(open);
+      if (!open) {
+        setBranchQuery("");
+      }
+    },
+    [needsRepositorySelection],
+  );
 
   useImperativeHandle(
     ref,
@@ -734,7 +739,7 @@ export function BranchToolbarBranchSelector({
       <BranchPicker
         items={branchPickerItems}
         filteredItems={filteredBranchPickerItems}
-        open={isBranchMenuOpen}
+        open={isBranchMenuOpen && !needsRepositorySelection}
         onOpenChange={handleOpenChange}
         onSelectItem={selectPickerItem}
         value={resolvedActiveBranch}
@@ -804,7 +809,9 @@ export function BranchToolbarBranchSelector({
                 )
               }
               className="min-w-0 max-w-full active:scale-100"
-              disabled={isInitialBranchesLoadPending || isBranchActionPending}
+              disabled={
+                needsRepositorySelection || isInitialBranchesLoadPending || isBranchActionPending
+              }
             >
               <GitBranchIcon
                 className={cn(
