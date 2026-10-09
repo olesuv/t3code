@@ -5,7 +5,8 @@ import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 import * as Result from "effect/Result";
 
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, WorkspaceRepository } from "@t3tools/contracts";
+import { formatRepositoryReviewSectionTitle } from "@t3tools/shared/composerContextReferences";
 import {
   buildReviewCommentTarget,
   clearReviewCommentTarget,
@@ -29,10 +30,14 @@ interface PendingNativeCommentSelection extends NativeReviewDiffCommentTarget {
 export function useReviewCommentSelectionController(input: {
   readonly environmentId?: EnvironmentId;
   readonly threadId?: ThreadId;
+  readonly repository?: WorkspaceRepository;
   readonly selectedSection: ReviewSectionItem | null;
   readonly nativeReviewDiffData: NativeReviewDiffData;
 }) {
   const { environmentId, nativeReviewDiffData, selectedSection, threadId } = input;
+  const sectionTitle = selectedSection
+    ? formatRepositoryReviewSectionTitle(selectedSection.title, input.repository)
+    : undefined;
   const navigation = useNavigation();
   const activeCommentTarget = useReviewCommentTarget();
   const [pendingNativeCommentSelection, setPendingNativeCommentSelection] =
@@ -52,7 +57,7 @@ export function useReviewCommentSelectionController(input: {
   const selectedRowIds = useMemo(() => {
     if (
       activeCommentTarget &&
-      activeCommentTarget.sectionTitle === selectedSection?.title &&
+      activeCommentTarget.sectionTitle === sectionTitle &&
       activeCommentTarget.startIndex !== activeCommentTarget.endIndex
     ) {
       return pipe(
@@ -69,13 +74,13 @@ export function useReviewCommentSelectionController(input: {
     activeCommentTarget,
     nativeReviewDiffData.rowIdByCommentLineId,
     pendingNativeCommentSelection,
-    selectedSection?.title,
+    sectionTitle,
   ]);
 
   const selectionAction = useMemo(() => {
     if (
       activeCommentTarget &&
-      activeCommentTarget.sectionTitle === selectedSection?.title &&
+      activeCommentTarget.sectionTitle === sectionTitle &&
       activeCommentTarget.startIndex !== activeCommentTarget.endIndex
     ) {
       return {
@@ -86,7 +91,7 @@ export function useReviewCommentSelectionController(input: {
 
     if (
       pendingNativeCommentSelection &&
-      pendingNativeCommentSelection.sectionTitle === selectedSection?.title
+      pendingNativeCommentSelection.sectionTitle === sectionTitle
     ) {
       return {
         title: "Select range end",
@@ -95,12 +100,7 @@ export function useReviewCommentSelectionController(input: {
     }
 
     return null;
-  }, [
-    activeCommentTarget,
-    openReviewCommentSheet,
-    pendingNativeCommentSelection,
-    selectedSection?.title,
-  ]);
+  }, [activeCommentTarget, openReviewCommentSheet, pendingNativeCommentSelection, sectionTitle]);
 
   useEffect(() => {
     clearReviewCommentTarget();
@@ -120,7 +120,7 @@ export function useReviewCommentSelectionController(input: {
         readonly gesture?: "tap" | "longPress";
       }>,
     ) => {
-      if (!selectedSection) {
+      if (!selectedSection || !sectionTitle) {
         return;
       }
 
@@ -139,7 +139,7 @@ export function useReviewCommentSelectionController(input: {
         setPendingNativeCommentSelection({
           ...target,
           sectionId: selectedSection.id,
-          sectionTitle: selectedSection.title,
+          sectionTitle,
           rowId,
         });
         return;
@@ -147,7 +147,7 @@ export function useReviewCommentSelectionController(input: {
 
       if (
         pendingNativeCommentSelection &&
-        pendingNativeCommentSelection.sectionTitle === selectedSection.title &&
+        pendingNativeCommentSelection.sectionTitle === sectionTitle &&
         pendingNativeCommentSelection.filePath === target.filePath
       ) {
         setReviewCommentTarget(
@@ -167,7 +167,7 @@ export function useReviewCommentSelectionController(input: {
 
       setPendingNativeCommentSelection(null);
       setReviewCommentTarget({
-        sectionTitle: selectedSection.title,
+        sectionTitle,
         sectionId: selectedSection.id,
         filePath: target.filePath,
         lines: target.lines,
@@ -181,6 +181,7 @@ export function useReviewCommentSelectionController(input: {
       openReviewCommentSheet,
       pendingNativeCommentSelection,
       selectedSection,
+      sectionTitle,
     ],
   );
 

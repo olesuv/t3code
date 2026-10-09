@@ -6,6 +6,7 @@ import {
   formatComposerContextHref,
   formatComposerContextProviderMarker,
   formatComposerContextReference,
+  formatRepositoryReviewSectionTitle,
   parseComposerContextHref,
   projectComposerContextForProvider,
   replaceComposerContextReferences,
@@ -15,6 +16,41 @@ import {
 const ctx = (value: string) => value as ComposerContextId;
 
 describe("href codec", () => {
+  it("identifies the repository checkout in provider-facing review comments", () => {
+    const project = (checkoutPath: string) => {
+      const record: ComposerContextRecord = {
+        version: 1,
+        contextId: ctx("ctx_review"),
+        kind: "review-comment",
+        label: "src/index.ts",
+        sectionId: "repository:changes",
+        sectionTitle: formatRepositoryReviewSectionTitle("Changes", {
+          name: "app",
+          checkoutPath,
+        }),
+        filePath: "src/index.ts",
+        startIndex: 0,
+        endIndex: 0,
+        rangeLabel: "L1",
+        text: "Fix this",
+        diff: "+const value = 1;",
+      };
+      return projectComposerContextForProvider({
+        text: formatComposerContextReference({
+          kind: record.kind,
+          contextId: record.contextId,
+          label: record.label,
+        }),
+        records: [record],
+      });
+    };
+    const first = project("/work/repo-a");
+    const second = project("/work/repo-b");
+    expect(first).toContain("section: Changes · app (/work/repo-a)");
+    expect(second).toContain("section: Changes · app (/work/repo-b)");
+    expect(first).not.toEqual(second);
+    expect(formatRepositoryReviewSectionTitle("Changes", undefined)).toBe("Changes");
+  });
   it("round-trips kind and id", () => {
     const href = formatComposerContextHref("review-comment", ctx("ctx_1"));
     expect(href).toBe("t3-context://v1/review-comment/ctx_1");

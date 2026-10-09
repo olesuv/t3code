@@ -1,4 +1,5 @@
 import { WorkspaceDiffPanel } from "./diffs/WorkspaceDiffPanel";
+import { formatRepositoryReviewSectionTitle } from "@t3tools/shared/composerContextReferences";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { useAtomValue } from "@effect/atom-react";
 import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
@@ -1251,7 +1252,10 @@ function RepositoryDiffPanel({
                     files={codeViewFiles}
                     renderCodeViewFooter={renderLoadingBoundary}
                     sectionId={reviewSectionId}
-                    sectionTitle={reviewSectionTitle}
+                    sectionTitle={formatRepositoryReviewSectionTitle(
+                      reviewSectionTitle,
+                      repository,
+                    )}
                     composerDraftTarget={composerDraftTarget}
                     renderHeaderFilenameSuffix={(fileDiff) => {
                       const path = resolveFileDiffPath(fileDiff);

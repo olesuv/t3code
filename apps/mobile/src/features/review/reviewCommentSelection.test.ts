@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
+import { formatRepositoryReviewSectionTitle } from "@t3tools/shared/composerContextReferences";
 
 import {
   countReviewCommentContexts,
@@ -43,6 +44,23 @@ function makeTarget(): ReviewCommentTarget {
 }
 
 describe("review comment serialization", () => {
+  it("preserves the repository checkout when serializing mobile review comments", () => {
+    const comments = ["/work/repo-a", "C:\\work\\repo-b"].map((checkoutPath) => {
+      const target = {
+        ...makeTarget(),
+        sectionTitle: formatRepositoryReviewSectionTitle("Changes", {
+          name: "app",
+          checkoutPath,
+        }),
+      };
+      const serialized = formatReviewCommentContext(target, "Fix this");
+      const [comment] = parseReviewInlineComments(serialized);
+      expect(comment?.sectionTitle).toBe(`Changes · app (${checkoutPath})`);
+      expect(comment?.filePath).toBe(target.filePath);
+      return serialized;
+    });
+    expect(comments[0]).not.toEqual(comments[1]);
+  });
   it("keeps closing-tag text inside a chip label within a real review body", () => {
     const body = "Before [</review_comment>](t3-context://v1/mention/context-1) after";
     const serialized = `<review_comment sectionId="s" filePath="app.ts" startIndex="0" endIndex="0">${body}</review_comment>`;

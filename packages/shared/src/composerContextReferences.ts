@@ -5,7 +5,16 @@ import {
   type ComposerContextRecord,
   type ElementContextDetails,
   type KnownComposerContextRecord,
+  type WorkspaceRepository,
 } from "@t3tools/contracts";
+
+/** Keep the checkout visible in provider context without changing relative diff paths. */
+export function formatRepositoryReviewSectionTitle(
+  title: string,
+  repository: Pick<WorkspaceRepository, "name" | "checkoutPath"> | null | undefined,
+): string {
+  return repository ? `${title} · ${repository.name} (${repository.checkoutPath})` : title;
+}
 
 /**
  * Canonical inline reference: `[label](t3-context://v1/<kind>/<contextId>)`, or the image

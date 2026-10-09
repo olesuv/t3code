@@ -587,6 +587,7 @@ function RepositoryReviewSheet(
   const commentSelection = useReviewCommentSelectionController({
     environmentId,
     threadId,
+    repository: props.repository,
     selectedSection,
     nativeReviewDiffData,
   });
