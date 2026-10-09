@@ -52,6 +52,7 @@ import {
   CheckIcon,
   ChevronRightIcon,
   CornerLeftUpIcon,
+  FileJsonIcon,
   FileSearchIcon,
   FolderGit2Icon,
   FolderIcon,
@@ -1638,6 +1639,24 @@ function OpenCommandPaletteDialog(props: {
         },
       ];
 
+      if (
+        environments.find((environment) => environment.environmentId === environmentId)
+          ?.serverConfig?.codeWorkspaces === true
+      ) {
+        sourceItems.push({
+          kind: "action",
+          value: `action:add-project:${environmentId}:workspace`,
+          searchTerms: ["open", "workspace", "code-workspace", "file", "vscode"],
+          title: "Open workspace file",
+          description: "Select a .code-workspace file on disk",
+          icon: <FileJsonIcon className={ITEM_ICON_CLASS} />,
+          keepOpen: true,
+          run: async () => {
+            await startAddProjectBrowse(environmentId);
+          },
+        });
+      }
+
       if (newProjectsRootFor(environmentId) !== null) {
         sourceItems.unshift({
           kind: "action",
@@ -1724,6 +1743,7 @@ function OpenCommandPaletteDialog(props: {
       return [{ value: `sources:${environmentId}`, label: "Sources", items: sourceItems }];
     },
     [
+      environments,
       newProjectsRootFor,
       openSourceControlSettings,
       startAddProjectBrowse,
