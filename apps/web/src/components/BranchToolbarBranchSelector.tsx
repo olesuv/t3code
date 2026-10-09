@@ -706,10 +706,16 @@ export function BranchToolbarBranchSelector({
     );
   }
 
+  const repositoryItems = [
+    { value: "choose", label: "Choose repository" },
+    ...(workspace?.repositories.map((entry) => ({ value: entry.id, label: entry.name })) ?? []),
+  ];
+
   return (
     <>
       {workspace ? (
         <Select
+          items={repositoryItems}
           value={repository?.id ?? "choose"}
           onValueChange={(value) => selectRepository(value === "choose" ? null : value)}
         >
@@ -717,10 +723,9 @@ export function BranchToolbarBranchSelector({
             <SelectValue />
           </SelectTrigger>
           <SelectPopup>
-            <SelectItem value="choose">Choose repository</SelectItem>
-            {workspace.repositories.map((entry) => (
-              <SelectItem key={entry.id} value={entry.id}>
-                {entry.name}
+            {repositoryItems.map((entry) => (
+              <SelectItem key={entry.value} value={entry.value}>
+                {entry.label}
               </SelectItem>
             ))}
           </SelectPopup>
