@@ -11,7 +11,7 @@ import { useThreadProjection } from "../../state/entities";
 import { useFilesystemReadAccess } from "../../state/filesystem";
 import { useEnvironmentQuery } from "../../state/query";
 import { reviewEnvironment } from "../../state/review";
-import { Button } from "../ui/button";
+import { DiffStatLabel } from "../chat/DiffStatLabel";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { DiffPanelLoadingState, type DiffPanelMode } from "../DiffPanelShell";
 
@@ -183,51 +183,49 @@ export function WorkspaceDiffPanel(props: {
             <p role="alert">{error}</p>
           ) : null}
           {fileAccess.canReadFiles &&
-            groups?.map((group) => (
-              <section key={group.repository.id} className="mb-4">
-                <Button
-                  variant="ghost"
-                  size="sm"
+            groups?.map((group) => {
+              const totals = group.files.reduce(
+                (total, file) => ({
+                  additions: total.additions + file.additions,
+                  deletions: total.deletions + file.deletions,
+                }),
+                { additions: 0, deletions: 0 },
+              );
+              return (
+                <button
+                  key={group.repository.id}
+                  type="button"
+                  className="mb-4 flex w-full cursor-pointer flex-col gap-1 rounded-lg px-3 py-2 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
                   onClick={() => setRepositoryId(group.repository.id)}
                 >
-                  {group.repository.name}
-                </Button>
-                <p className="px-3 text-xs text-muted-foreground">
-                  {group.repository.checkoutPath}
-                </p>
-                {group.error ? (
-                  <p role="alert" className="px-3 py-2 text-sm">
-                    {group.error}
-                  </p>
-                ) : group.incomplete ? (
-                  <p className="px-3 py-2 text-sm">
-                    Summary incomplete. Select this repository to load changes.
-                  </p>
-                ) : group.files.length === 0 ? (
-                  <p className="px-3 py-2 text-sm text-muted-foreground">No changes</p>
-                ) : (
-                  <ul>
-                    {group.files.map((file) => (
-                      <li
-                        key={JSON.stringify([
-                          props.thread.environmentId,
-                          group.repository.id,
-                          file.path,
-                        ])}
-                      >
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setRepositoryId(group.repository.id)}
-                        >
-                          {file.path} · +{file.additions} −{file.deletions}
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            ))}
+                  <span className="flex w-full min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium">
+                      {group.repository.name}
+                    </span>
+                    {!group.error && group.files.length > 0 ? (
+                      <DiffStatLabel
+                        additions={totals.additions}
+                        deletions={totals.deletions}
+                        className="shrink-0 text-xs"
+                        layout="inline"
+                      />
+                    ) : null}
+                  </span>
+                  <span className="w-full truncate text-xs text-muted-foreground">
+                    {group.repository.checkoutPath}
+                  </span>
+                  {group.error ? (
+                    <span role="alert" className="text-sm">
+                      {group.error}
+                    </span>
+                  ) : group.incomplete ? (
+                    <span className="text-sm text-muted-foreground">
+                      Summary incomplete. Select this repository to load changes.
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
           {workspace.repositories.length === 0 ? (
             <p className="text-sm text-muted-foreground">This workspace has no Git repositories.</p>
           ) : null}
