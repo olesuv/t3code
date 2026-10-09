@@ -475,6 +475,8 @@ function projectEntriesFailureContext(error: WorkspaceEntries.WorkspaceEntriesEr
         normalizedCwd: error.cwd,
         timeout: error.timeout,
       };
+    case "WorkspaceEntriesWorkspaceError":
+      return { failure: "directory_list_failed", detail: error.message };
     case "WorkspaceSearchIndexSearchFailed":
       return {
         failure: "search_index_search_failed",
@@ -1725,6 +1727,7 @@ const layerWsRpc = (
               otlpLogsEnabled: config.otlpLogsUrl !== undefined,
             },
             settings,
+            codeWorkspaces: true,
             shellResumeCompletionMarker: true,
             threadResumeCompletionMarker: true,
             threadSnapshotPagination: true,
@@ -2776,7 +2779,13 @@ const layerWsRpc = (
             }
             return yield* issueAssetUrl({
               resource: input.resource,
-              workspaceRoot: thread.thread.worktreePath ?? project.value.workspaceRoot,
+              workspaceRoot:
+                thread.thread.workspace?.workspaceRoot ??
+                thread.thread.worktreePath ??
+                project.value.workspaceRoot,
+              ...(thread.thread.workspace
+                ? { workspaceRoots: thread.thread.workspace.folders.map((folder) => folder.path) }
+                : {}),
             });
           }),
         [WS_METHODS.assetsPersistChatAttachments]: (input) =>

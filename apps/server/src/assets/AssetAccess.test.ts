@@ -666,6 +666,50 @@ describe("AssetAccess", () => {
     }).pipe(Effect.provide(layerTest)),
   );
 
+  it.effect("serves an external workspace folder with links confined to that folder", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const temporary = yield* fs.makeTempDirectoryScoped({ prefix: "t3-asset-multi-root-" });
+      const root = yield* fs.realPath(temporary);
+      const meta = path.join(root, "meta");
+      const external = path.join(root, "external");
+      yield* fs.makeDirectory(meta);
+      yield* fs.makeDirectory(external);
+      yield* fs.writeFileString(
+        path.join(external, "report.html"),
+        '<link rel="stylesheet" href="report.css">',
+      );
+      yield* fs.writeFileString(path.join(external, "report.css"), "body { color: red; }");
+      const result = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("workspace-thread"),
+          path: path.join(external, "report.html"),
+        },
+        workspaceRoot: meta,
+        workspaceRoots: [external],
+      });
+      const suffix = result.relativeUrl.slice(`${ASSET_ROUTE_PREFIX}/`.length);
+      const token = suffix.slice(0, suffix.indexOf("/"));
+      expect(yield* resolveAsset(token, "report.css")).toEqual({
+        kind: "file",
+        path: path.join(external, "report.css"),
+      });
+      expect(yield* resolveAsset(token, "../meta/report.css")).toBeNull();
+      const outside = yield* issueAssetUrl({
+        resource: {
+          _tag: "workspace-file",
+          threadId: ThreadId.make("workspace-thread"),
+          path: path.join(root, "outside.html"),
+        },
+        workspaceRoot: meta,
+        workspaceRoots: [external],
+      }).pipe(Effect.flip);
+      expect(outside._tag).toBe("AssetWorkspacePathValidationError");
+    }).pipe(Effect.provide(layerTest)),
+  );
+
   it.effect("rejects workspace files outside the authorized root", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;

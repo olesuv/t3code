@@ -454,6 +454,7 @@ const finalizeWorkspaceFileAsset = Effect.fn("AssetAccess.finalizeWorkspaceFileA
 export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (input: {
   readonly resource: AssetResource;
   readonly workspaceRoot?: string;
+  readonly workspaceRoots?: ReadonlyArray<string>;
   readonly projectFaviconPath?: string;
   /** The project's clone has not landed, so its icon is reported missing without a lookup. */
   readonly projectCheckoutPending?: boolean;
@@ -461,6 +462,16 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
   const fileSystem = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
+  const requestedPath = "path" in input.resource ? input.resource.path : null;
+  const selectedWorkspaceRoot =
+    requestedPath && path.isAbsolute(requestedPath)
+      ? ([...(input.workspaceRoots ?? [])]
+          .sort((a, b) => b.length - a.length)
+          .find((root) => {
+            const relative = path.relative(root, requestedPath);
+            return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+          }) ?? input.workspaceRoot)
+      : input.workspaceRoot;
   let expiresAt = (yield* Clock.currentTimeMillis) + ASSET_TOKEN_TTL_MS;
   let claims: AssetClaims;
   let fileName: string;
@@ -471,11 +482,11 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
     case "media-file": {
       let requestedPath = expandHomePathWith(input.resource.path, path);
       if (!path.isAbsolute(requestedPath)) {
-        if (!input.workspaceRoot) {
+        if (!selectedWorkspaceRoot) {
           return yield* new AssetWorkspaceContextNotFoundError({ resource: input.resource });
         }
         const workspaceRoot = yield* workspacePaths
-          .normalizeWorkspaceRoot(input.workspaceRoot)
+          .normalizeWorkspaceRoot(selectedWorkspaceRoot)
           .pipe(
             Effect.mapError(
               (cause) =>
@@ -495,20 +506,22 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
       break;
     }
     case "workspace-file": {
-      if (!input.workspaceRoot) {
+      if (!selectedWorkspaceRoot) {
         return yield* new AssetWorkspaceContextNotFoundError({
           resource: input.resource,
         });
       }
-      const workspaceRoot = yield* workspacePaths.normalizeWorkspaceRoot(input.workspaceRoot).pipe(
-        Effect.mapError(
-          (cause) =>
-            new AssetWorkspaceRootNormalizationError({
-              resource: input.resource,
-              cause,
-            }),
-        ),
-      );
+      const workspaceRoot = yield* workspacePaths
+        .normalizeWorkspaceRoot(selectedWorkspaceRoot)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new AssetWorkspaceRootNormalizationError({
+                resource: input.resource,
+                cause,
+              }),
+          ),
+        );
       const finalized = yield* finalizeWorkspaceFileAsset({
         workspaceRoot,
         requestedPath: input.resource.path,
@@ -523,7 +536,7 @@ export const issueAssetUrl = Effect.fn("AssetAccess.issueAssetUrl")(function* (i
     case "draft-workspace-file": {
       // The draft names its workspace root in the resource itself; an explicit
       // root only overrides it.
-      const draftWorkspaceRoot = input.workspaceRoot ?? input.resource.cwd;
+      const draftWorkspaceRoot = selectedWorkspaceRoot ?? input.resource.cwd;
       if (path.isAbsolute(input.resource.path)) {
         // An absolute draft path serves exactly like an absolute media path.
         const finalized = yield* finalizeAbsoluteMediaFileAsset({

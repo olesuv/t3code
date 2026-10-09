@@ -4,10 +4,12 @@ import * as NodeFSP from "node:fs/promises";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as RcMap from "effect/RcMap";
 import * as Schema from "effect/Schema";
 
+import { workspaceFileRoots } from "@t3tools/contracts";
 import type {
   FilesystemBrowseInput,
   FilesystemBrowseResult,
@@ -24,6 +26,8 @@ import { isExplicitRelativePath, isWindowsAbsolutePath } from "@t3tools/shared/p
 import { normalizeSearchQuery } from "@t3tools/shared/searchRanking";
 
 import { expandHomePathWith } from "@t3tools/provider-core/server/pathExpansion";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 import * as WorkspaceSearchIndex from "./WorkspaceSearchIndex.ts";
@@ -75,7 +79,13 @@ export const WorkspaceEntriesBrowseError = Schema.Union([
 ]);
 export type WorkspaceEntriesBrowseError = typeof WorkspaceEntriesBrowseError.Type;
 
+export class WorkspaceEntriesWorkspaceError extends Schema.TaggedError<WorkspaceEntriesWorkspaceError>()(
+  "WorkspaceEntriesWorkspaceError",
+  { message: Schema.String, cause: Schema.optional(Schema.Defect()) },
+) {}
+
 export const WorkspaceEntriesError = Schema.Union([
+  WorkspaceEntriesWorkspaceError,
   WorkspaceEntriesReadDirectoryError,
   WorkspacePaths.WorkspaceRootNotExistsError,
   WorkspacePaths.WorkspaceRootCreateFailedError,
@@ -137,6 +147,59 @@ export const make = Effect.gen(function* () {
   const workspacePaths = yield* WorkspacePaths.WorkspacePaths;
   const workspaceSearchIndexes = yield* WorkspaceSearchIndex.WorkspaceSearchIndexMap;
   const vcsProcess = yield* VcsProcess.VcsProcess;
+  const projects = yield* ProjectStore.ProjectStoreV2;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
+  const resolveRoots = Effect.fn("WorkspaceEntries.resolveRoots")(function* (
+    input: Pick<ProjectSearchEntriesInput, "threadId" | "projectId" | "rootId">,
+  ) {
+    const error = (message: string) => new WorkspaceEntriesWorkspaceError({ message });
+    const workspace = input.threadId
+      ? yield* projections.getThreadShell(input.threadId).pipe(
+          Effect.mapError(
+            (cause) =>
+              new WorkspaceEntriesWorkspaceError({
+                message: "Could not read the thread's workspace folders.",
+                cause,
+              }),
+          ),
+          Effect.flatMap((thread) =>
+            thread
+              ? Effect.succeed(thread.workspace)
+              : Effect.fail(
+                  error("This thread no longer exists. Reload before browsing its folders."),
+                ),
+          ),
+        )
+      : input.projectId
+        ? yield* projects.get(input.projectId).pipe(
+            Effect.mapError(
+              (cause) =>
+                new WorkspaceEntriesWorkspaceError({
+                  message: "Could not read the project's workspace folders.",
+                  cause,
+                }),
+            ),
+            Effect.flatMap((project) =>
+              Option.isSome(project)
+                ? Effect.succeed(project.value.workspace)
+                : Effect.fail(
+                    error("This project no longer exists. Reload before browsing its folders."),
+                  ),
+            ),
+          )
+        : null;
+    if (!workspace) {
+      if (input.rootId)
+        return yield* error("A workspace root requires a workspace project or thread.");
+      return null;
+    }
+    const roots = workspaceFileRoots(workspace);
+    if (!input.rootId) return roots;
+    const root = roots.find((entry) => entry.id === input.rootId);
+    return root
+      ? [root]
+      : yield* error("The selected folder is not part of this workspace thread or project.");
+  });
 
   const normalizeWorkspaceRoot = Effect.fn("WorkspaceEntries.normalizeWorkspaceRoot")(function* (
     cwd: string,
@@ -211,16 +274,24 @@ export const make = Effect.gen(function* () {
 
       const showHidden = endsWithSeparator || prefix.startsWith(".");
       const lowerPrefix = prefix.toLowerCase();
-      const entries: Array<{ readonly name: string; readonly fullPath: string }> = [];
+      const entries: Array<{
+        readonly name: string;
+        readonly fullPath: string;
+        readonly kind?: "workspace";
+      }> = [];
       for (const dirent of dirents) {
         if (
-          dirent.isDirectory() &&
+          (dirent.isDirectory() ||
+            (input.includeWorkspaceFiles &&
+              dirent.isFile() &&
+              dirent.name.endsWith(".code-workspace"))) &&
           dirent.name.toLowerCase().startsWith(lowerPrefix) &&
           (showHidden || !dirent.name.startsWith("."))
         ) {
           entries.push({
             name: dirent.name,
             fullPath: path.join(parentPath, dirent.name),
+            ...(dirent.isFile() ? { kind: "workspace" as const } : {}),
           });
         }
       }
@@ -234,6 +305,39 @@ export const make = Effect.gen(function* () {
 
   const search: WorkspaceEntries["Service"]["search"] = Effect.fn("WorkspaceEntries.search")(
     function* (input) {
+      const roots = yield* resolveRoots(input);
+      if (roots) {
+        const matchingRoots = roots.filter((root) => input.query.startsWith(`${root.name}/`));
+        const selected = matchingRoots.length ? matchingRoots : roots;
+        const perRootLimit = Math.max(1, Math.floor(input.limit / Math.max(1, selected.length)));
+        const results = yield* Effect.forEach(
+          selected.slice(0, input.limit),
+          (root) =>
+            search({
+              cwd: root.path,
+              query: matchingRoots.length ? input.query.slice(root.name.length + 1) : input.query,
+              limit: perRootLimit,
+              ...(input.kind ? { kind: input.kind } : {}),
+              ...(input.imageOnly ? { imageOnly: true } : {}),
+            }).pipe(
+              Effect.map((result) => ({ root, result, error: null })),
+              Effect.catch((cause) => Effect.succeed({ root, result: null, error: cause.message })),
+            ),
+          { concurrency: 4 },
+        );
+        return {
+          entries: results
+            .flatMap(
+              (entry) => entry.result?.entries.map((file) => ({ ...file, root: entry.root })) ?? [],
+            )
+            .slice(0, input.limit),
+          truncated:
+            selected.length > input.limit || results.some((entry) => entry.result?.truncated),
+          rootErrors: results.flatMap((entry) =>
+            entry.error ? [{ root: entry.root, message: entry.error }] : [],
+          ),
+        };
+      }
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
       const normalizedQuery = normalizeSearchQuery(input.query, {
         trimLeadingPattern: /^[@./]+/,
@@ -254,6 +358,43 @@ export const make = Effect.gen(function* () {
   const searchContents: WorkspaceEntries["Service"]["searchContents"] = Effect.fn(
     "WorkspaceEntries.searchContents",
   )(function* (input) {
+    const roots = yield* resolveRoots(input);
+    if (roots) {
+      const perRootLimit = Math.max(1, Math.floor(input.limit / Math.max(1, roots.length)));
+      const results = yield* Effect.forEach(
+        roots.slice(0, input.limit),
+        (root) =>
+          searchContents({
+            cwd: root.path,
+            query: input.query,
+            limit: perRootLimit,
+            caseSensitive: input.caseSensitive,
+            wholeWord: input.wholeWord,
+            useRegex: input.useRegex,
+          }).pipe(
+            Effect.map((result) => ({ root, result, error: null })),
+            Effect.catch((cause) => Effect.succeed({ root, result: null, error: cause.message })),
+          ),
+        { concurrency: 4 },
+      );
+      return {
+        matches: results
+          .flatMap(
+            (entry) => entry.result?.matches.map((match) => ({ ...match, root: entry.root })) ?? [],
+          )
+          .slice(0, input.limit),
+        truncated: roots.length > input.limit || results.some((entry) => entry.result?.truncated),
+        rootErrors: results.flatMap((entry) =>
+          entry.error ? [{ root: entry.root, message: entry.error }] : [],
+        ),
+        ...(results.find((entry) => entry.result?.regexFallbackError)?.result?.regexFallbackError
+          ? {
+              regexFallbackError: results.find((entry) => entry.result?.regexFallbackError)!.result!
+                .regexFallbackError,
+            }
+          : {}),
+      };
+    }
     const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
     return yield* Effect.gen(function* () {
       const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
@@ -269,6 +410,16 @@ export const make = Effect.gen(function* () {
 
   const list: WorkspaceEntries["Service"]["list"] = Effect.fn("WorkspaceEntries.list")(
     function* (input) {
+      const roots = yield* resolveRoots(input);
+      if (roots) {
+        if (!input.rootId) return { entries: [], truncated: false, roots };
+        const root = roots[0]!;
+        const result = yield* list({
+          cwd: root.path,
+          ...(input.directoryPath !== undefined ? { directoryPath: input.directoryPath } : {}),
+        });
+        return { ...result, entries: result.entries.map((entry) => ({ ...entry, root })) };
+      }
       const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
       if (input.directoryPath !== undefined) {
         const directoryPath = input.directoryPath;

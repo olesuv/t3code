@@ -31,8 +31,8 @@ function encodeMarkdownLinkDestination(path: string): string {
     .replaceAll("\\", "%5C");
 }
 
-export function serializeComposerFileLink(path: string): string {
-  const label = escapeMarkdownLinkLabel(composerFileLinkBasename(path));
+export function serializeComposerFileLink(path: string, displayName?: string): string {
+  const label = escapeMarkdownLinkLabel(displayName ?? composerFileLinkBasename(path));
   return `[${label}](${encodeMarkdownLinkDestination(path)})`;
 }
 

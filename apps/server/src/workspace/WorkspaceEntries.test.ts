@@ -13,6 +13,9 @@ import { vi } from "vite-plus/test";
 import * as ServerConfig from "../config.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as Option from "effect/Option";
 import * as WorkspaceEntries from "./WorkspaceEntries.ts";
 import * as WorkspacePaths from "./WorkspacePaths.ts";
 
@@ -21,8 +24,18 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   return { ...actual, readdir: vi.fn(actual.readdir) };
 });
 
+const layerWorkspaceEntries = WorkspaceEntries.layer.pipe(
+  Layer.provide(WorkspacePaths.layer),
+  Layer.provide(
+    Layer.mock(ProjectStore.ProjectStoreV2)({ get: () => Effect.succeed(Option.none()) }),
+  ),
+  Layer.provide(
+    Layer.mock(ProjectionStore.ProjectionStoreV2)({ getThreadShell: () => Effect.succeed(null) }),
+  ),
+);
+
 const layerTest = Layer.empty.pipe(
-  Layer.provideMerge(WorkspaceEntries.layer.pipe(Layer.provide(WorkspacePaths.layer))),
+  Layer.provideMerge(layerWorkspaceEntries),
   Layer.provideMerge(WorkspacePaths.layer),
   Layer.provideMerge(VcsProcess.layer),
   Layer.provide(
@@ -734,6 +747,29 @@ it.layer(layerTest, { excludeTestServices: true })("WorkspaceEntries", (it) => {
   });
 
   describe("browse", () => {
+    it.effect("opts into destination-environment workspace files without listing other files", () =>
+      Effect.gen(function* () {
+        const entries = yield* WorkspaceEntries.WorkspaceEntries;
+        const path = yield* Path.Path;
+        const cwd = yield* makeTempDir({ prefix: "t3code-workspace-file-browse-" });
+        yield* writeTextFile(cwd, "team.code-workspace", "{}");
+        yield* writeTextFile(cwd, "team.txt", "text");
+        yield* writeTextFile(cwd, "team-dir/file", "text");
+        const normal = yield* entries.browse({ partialPath: path.join(cwd, "team") });
+        expect(normal.entries.map((entry) => entry.name)).toEqual(["team-dir"]);
+        const workspaces = yield* entries.browse({
+          partialPath: path.join(cwd, "team"),
+          includeWorkspaceFiles: true,
+        });
+        expect(workspaces.entries.find((entry) => entry.kind === "workspace")).toEqual({
+          name: "team.code-workspace",
+          fullPath: path.join(cwd, "team.code-workspace"),
+          kind: "workspace",
+        });
+        expect(workspaces.entries.some((entry) => entry.name === "team.txt")).toBe(false);
+      }),
+    );
+
     it.effect("returns matching directories and excludes files", () =>
       Effect.gen(function* () {
         const workspaceEntries = yield* WorkspaceEntries.WorkspaceEntries;
