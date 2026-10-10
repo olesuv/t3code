@@ -3,7 +3,7 @@ import { environmentSession } from "../../state/session";
 import { workspaceFileRoots, type EnvironmentId } from "@t3tools/contracts";
 import { SymbolView } from "../../components/AppSymbol";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
-import { useCallback, useMemo, useState, type ComponentProps } from "react";
+import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react";
 import { Platform, Pressable, View, type NativeSyntheticEvent } from "react-native";
 import {
   Screen,
@@ -48,6 +48,9 @@ export function ThreadFileNavigatorPane(props: {
     roots.find((entry) => entry.path === props.cwd);
   const cwd = root?.path ?? props.cwd;
   const [searchQuery, setSearchQuery] = useState("");
+  // The iOS picker remounts with the root-specific file tree.
+  const folderPickerScrollOffsetRef = useRef(0);
+  const [folderPickerInitialScrollOffset, setFolderPickerInitialScrollOffset] = useState(0);
   const { toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
   const theme = useUniwindTheme();
@@ -98,7 +101,18 @@ export function ThreadFileNavigatorPane(props: {
   );
 
   const folderPicker = (
-    <WorkspaceFolderPicker roots={roots} selectedId={root?.id} onSelect={setSelectedRootId} />
+    <WorkspaceFolderPicker
+      roots={roots}
+      selectedId={root?.id}
+      onSelect={(rootId) => {
+        setFolderPickerInitialScrollOffset(folderPickerScrollOffsetRef.current);
+        setSelectedRootId(rootId);
+      }}
+      initialScrollOffset={folderPickerInitialScrollOffset}
+      onScrollOffsetChange={(offset) => {
+        folderPickerScrollOffsetRef.current = offset;
+      }}
+    />
   );
 
   const fileTree = (

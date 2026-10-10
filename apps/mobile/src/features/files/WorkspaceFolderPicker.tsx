@@ -1,4 +1,4 @@
-import { Pressable, ScrollView } from "react-native";
+import { Platform, Pressable, ScrollView } from "react-native";
 import type { WorkspaceFolder } from "@t3tools/contracts";
 import { AppText as Text } from "../../components/AppText";
 
@@ -6,10 +6,25 @@ export function WorkspaceFolderPicker(props: {
   readonly roots: ReadonlyArray<WorkspaceFolder>;
   readonly selectedId: string | undefined;
   readonly onSelect: (rootId: string) => void;
+  readonly initialScrollOffset: number;
+  readonly onScrollOffsetChange: (offset: number) => void;
 }) {
   if (!props.roots.length) return null;
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="max-h-12 px-3">
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      className="max-h-12 px-3"
+      contentOffset={Platform.OS === "ios" ? { x: props.initialScrollOffset, y: 0 } : undefined}
+      onScroll={
+        Platform.OS === "ios"
+          ? (event) => {
+              props.onScrollOffsetChange(event.nativeEvent.contentOffset.x);
+            }
+          : undefined
+      }
+      scrollEventThrottle={Platform.OS === "ios" ? 16 : undefined}
+    >
       {props.roots.map((root) => (
         <Pressable
           key={root.id}

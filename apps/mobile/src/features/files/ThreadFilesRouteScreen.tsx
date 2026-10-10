@@ -460,6 +460,9 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
   const navigation = useNavigation();
   const { fileInspector, layout, showAuxiliaryPane } = useAdaptiveWorkspaceLayout();
   const [searchQuery, setSearchQuery] = useState("");
+  // The iOS picker remounts with the root-specific file tree.
+  const folderPickerScrollOffsetRef = useRef(0);
+  const [folderPickerInitialScrollOffset, setFolderPickerInitialScrollOffset] = useState(0);
   const { themeAppearance: highlightTheme } = useAppearancePreferences();
   const { cwd, environmentId, projectName, selectedThread, threadId, roots, rootId } =
     useThreadFilesWorkspace(props.route.params);
@@ -592,7 +595,14 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     <WorkspaceFolderPicker
       roots={roots}
       selectedId={rootId}
-      onSelect={(rootId) => navigation.setParams({ rootId })}
+      onSelect={(rootId) => {
+        setFolderPickerInitialScrollOffset(folderPickerScrollOffsetRef.current);
+        navigation.setParams({ rootId });
+      }}
+      initialScrollOffset={folderPickerInitialScrollOffset}
+      onScrollOffsetChange={(offset) => {
+        folderPickerScrollOffsetRef.current = offset;
+      }}
     />
   );
 
