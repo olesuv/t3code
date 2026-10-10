@@ -16,7 +16,7 @@ import * as Schema from "effect/Schema";
 import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
 import * as ProjectStore from "./ProjectStore.ts";
-import * as NodePath from "node:path";
+import * as Path from "effect/Path";
 
 /**
  * ERRORS
@@ -43,18 +43,19 @@ export class WorkspaceProviderRootsUnsupportedError extends Schema.TaggedError<W
   }
 }
 
-export const validateWorkspaceProviderRoots = (input: {
-  readonly workspace: CodeWorkspace;
-  readonly providerInstanceId: ProviderInstanceId;
-  readonly capabilities: OrchestrationV2ProviderCapabilities | undefined;
-}) => {
+export const validateWorkspaceProviderRoots = (
+  input: {
+    readonly workspace: CodeWorkspace;
+    readonly providerInstanceId: ProviderInstanceId;
+    readonly capabilities: OrchestrationV2ProviderCapabilities | undefined;
+  },
+  path: Path.Path,
+) => {
   const externalRootCount = [
     ...new Set(input.workspace.folders.map((folder) => folder.path)),
   ].filter((directory) => {
-    const relative = NodePath.relative(input.workspace.workspaceRoot, directory);
-    return (
-      relative === ".." || relative.startsWith(`..${NodePath.sep}`) || NodePath.isAbsolute(relative)
-    );
+    const relative = path.relative(input.workspace.workspaceRoot, directory);
+    return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative);
   }).length;
   return externalRootCount > 0 &&
     input.capabilities?.runtimePolicy.supportsAdditionalWorkspaceRoots !== true
@@ -134,10 +135,11 @@ function providerRuntimeMode(
 export const layerFromProjectStore: Layer.Layer<
   RuntimePolicyV2,
   never,
-  ProjectStore.ProjectStoreV2 | ProviderInstanceRegistry.ProviderInstanceRegistry
+  ProjectStore.ProjectStoreV2 | ProviderInstanceRegistry.ProviderInstanceRegistry | Path.Path
 > = Layer.effect(
   RuntimePolicyV2,
   Effect.gen(function* () {
+    const path = yield* Path.Path;
     const projects = yield* ProjectStore.ProjectStoreV2;
     const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
     return RuntimePolicyV2.of({
@@ -190,11 +192,14 @@ export const layerFromProjectStore: Layer.Layer<
                       }),
                   ),
                 );
-          yield* validateWorkspaceProviderRoots({
-            workspace: input.thread.workspace,
-            capabilities,
-            providerInstanceId: input.modelSelection.instanceId,
-          });
+          yield* validateWorkspaceProviderRoots(
+            {
+              workspace: input.thread.workspace,
+              capabilities,
+              providerInstanceId: input.modelSelection.instanceId,
+            },
+            path,
+          );
         }
         return ProviderAdapter.ProviderAdapterV2RuntimePolicy.make({
           runtimeMode: providerRuntimeMode(input.thread.runtimeMode, supportedRuntimeModes),

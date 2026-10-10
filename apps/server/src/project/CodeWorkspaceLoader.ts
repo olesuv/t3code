@@ -1,4 +1,5 @@
-import * as NodeCrypto from "node:crypto";
+import * as Crypto from "effect/Crypto";
+import * as Hex from "effect/encoding/Hex";
 
 import { type CodeWorkspace, type WorkspaceRepository } from "@t3tools/contracts";
 import * as Context from "effect/Context";
@@ -74,10 +75,14 @@ export class CodeWorkspaceLoader extends Context.Service<
   }
 >()("t3/project/CodeWorkspaceLoader") {}
 
-const stableId = (kind: string, canonicalPath: string) =>
-  `${kind}-${NodeCrypto.createHash("sha256").update(canonicalPath).digest("hex")}`;
-
 const make = Effect.gen(function* () {
+  const crypto = yield* Crypto.Crypto;
+  const stableId = Effect.fnUntraced(function* (kind: string, canonicalPath: string) {
+    const digest = yield* crypto
+      .digest("SHA-256", new TextEncoder().encode(canonicalPath))
+      .pipe(Effect.orDie);
+    return `${kind}-${Hex.encode(digest)}`;
+  });
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const processes = yield* ProcessRunner.ProcessRunner;
@@ -152,7 +157,7 @@ const make = Effect.gen(function* () {
               folderIndex,
             });
           return {
-            id: stableId("folder", canonical),
+            id: yield* stableId("folder", canonical),
             path: canonical,
             name: folder.name?.trim() || path.basename(canonical) || canonical,
           };
@@ -193,14 +198,14 @@ const make = Effect.gen(function* () {
       const repositories = new Map<string, WorkspaceRepository>();
       if (metaRoot)
         repositories.set(metaRoot, {
-          id: stableId("repository", metaRoot),
+          id: yield* stableId("repository", metaRoot),
           name: path.basename(metaRoot) || metaRoot,
           checkoutPath: metaRoot,
         });
       for (const [index, root] of roots.entries()) {
         if (root && !repositories.has(root))
           repositories.set(root, {
-            id: stableId("repository", root),
+            id: yield* stableId("repository", root),
             name: folders[index]!.name,
             checkoutPath: root,
           });

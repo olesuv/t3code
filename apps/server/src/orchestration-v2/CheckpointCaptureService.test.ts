@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it } from "@effect/vitest";
 import {
@@ -276,6 +277,7 @@ it.layer(layerProjectionStoreTest)("CheckpointCaptureServiceV2", (it) => {
                       Layer.mergeAll(
                         IdAllocator.layer,
                         NodeCrypto.layer,
+                        NodePath.layer,
                         Layer.mock(CheckpointStore.CheckpointStore)({
                           isGitRepository: () => Effect.succeed(true),
                           captureCheckpoint: () => Effect.void,

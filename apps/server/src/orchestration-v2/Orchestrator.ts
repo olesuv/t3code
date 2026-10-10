@@ -4677,11 +4677,14 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           .get(modelSelection.instanceId)
           .pipe(mapDispatchError(command));
         const capabilities = yield* adapter.getCapabilities().pipe(mapDispatchError(command));
-        yield* validateWorkspaceProviderRoots({
-          workspace: projection.thread.workspace,
-          providerInstanceId: modelSelection.instanceId,
-          capabilities,
-        });
+        yield* validateWorkspaceProviderRoots(
+          {
+            workspace: projection.thread.workspace,
+            providerInstanceId: modelSelection.instanceId,
+            capabilities,
+          },
+          path,
+        );
       }
       let dispatchMode = resolveMessageDispatchIntent(
         projection,

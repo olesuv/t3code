@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { assert, it, vi } from "@effect/vitest";
 import {
@@ -59,7 +60,7 @@ it.effect.each([false, true, "interrupt"] as const)(
           }),
         ),
       ),
-      Layer.provideMerge(NodeCrypto.layer),
+      Layer.provideMerge(Layer.mergeAll(NodeCrypto.layer, NodePath.layer)),
     );
 
     return Effect.gen(function* () {
@@ -169,7 +170,7 @@ it.effect("keeps workspace captures independent, idempotent, and repository-qual
         }),
       ),
     ),
-    Layer.provideMerge(NodeCrypto.layer),
+    Layer.provideMerge(Layer.mergeAll(NodeCrypto.layer, NodePath.layer)),
   );
   return Effect.gen(function* () {
     const service = yield* CheckpointService.CheckpointServiceV2;

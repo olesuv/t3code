@@ -20,7 +20,7 @@ import * as Hex from "effect/encoding/Hex";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import * as NodePath from "node:path";
+import * as Path from "effect/Path";
 
 import { parseTurnDiffFilesFromNumstat } from "../checkpointing/Diffs.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
@@ -256,10 +256,11 @@ function makeCheckpoint(input: {
 export const layer: Layer.Layer<
   CheckpointServiceV2,
   never,
-  CheckpointStore.CheckpointStore | Crypto.Crypto | IdAllocator.IdAllocatorV2
+  CheckpointStore.CheckpointStore | Crypto.Crypto | IdAllocator.IdAllocatorV2 | Path.Path
 > = Layer.effect(
   CheckpointServiceV2,
   Effect.gen(function* () {
+    const path = yield* Path.Path;
     const checkpointStore = yield* CheckpointStore.CheckpointStore;
     const crypto = yield* Crypto.Crypto;
     const checkpointRefFor = (input: Parameters<typeof checkpointRefForScopeOrdinal>[0]) =>
@@ -287,11 +288,11 @@ export const layer: Layer.Layer<
       repository: WorkspaceRepository,
     ) =>
       (scope.workspaceRepositories ?? []).flatMap((other) => {
-        const relative = NodePath.relative(repository.checkoutPath, other.checkoutPath);
+        const relative = path.relative(repository.checkoutPath, other.checkoutPath);
         return relative &&
-          !NodePath.isAbsolute(relative) &&
+          !path.isAbsolute(relative) &&
           relative !== ".." &&
-          !relative.startsWith(`..${NodePath.sep}`)
+          !relative.startsWith(`..${path.sep}`)
           ? [relative]
           : [];
       });

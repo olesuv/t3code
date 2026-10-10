@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   ProjectId,
@@ -420,6 +421,7 @@ describe("Grok launch permission mode", () => {
       }).pipe(
         Effect.provide(
           RuntimePolicy.layerFromProjectStore.pipe(
+            Layer.provide(NodePath.layerPosix),
             Layer.provide(
               Layer.mock(ProjectStore.ProjectStoreV2)({
                 get: () => Effect.die("the thread has a worktree"),

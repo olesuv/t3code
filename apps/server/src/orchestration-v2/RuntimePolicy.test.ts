@@ -1,3 +1,4 @@
+import * as NodePath from "@effect/platform-node/NodePath";
 import { assert, it } from "@effect/vitest";
 import {
   type ModelSelection,
@@ -11,6 +12,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
@@ -88,6 +90,7 @@ const providerInstanceFor = (instanceId: ProviderInstanceId) =>
   }) as unknown as ProviderInstance;
 
 const layerTest = RuntimePolicy.layerFromProjectStore.pipe(
+  Layer.provide(NodePath.layerPosix),
   Layer.provide(
     Layer.succeed(ProviderInstanceRegistry.ProviderInstanceRegistry, {
       getInstance: (instanceId) => Effect.succeed(providerInstanceFor(instanceId)),
@@ -207,3 +210,32 @@ it.layer(layerTest)("RuntimePolicyV2", (it) => {
     }),
   );
 });
+
+it.effect("validates Windows descendants, external siblings and distinct drives", () =>
+  Effect.gen(function* () {
+    const path = yield* Path.Path;
+    const workspace = {
+      filePath: "C:\\meta\\all.code-workspace",
+      workspaceRoot: "C:\\meta",
+      folders: [{ id: "nested", name: "Nested", path: "C:\\meta\\child" }],
+      repositories: [],
+    };
+    yield* RuntimePolicy.validateWorkspaceProviderRoots(
+      { workspace, providerInstanceId, capabilities: undefined },
+      path,
+    );
+    const external = ["C:\\outside", "D:\\child", "D:\\child"];
+    const error = yield* RuntimePolicy.validateWorkspaceProviderRoots(
+      {
+        workspace: {
+          ...workspace,
+          folders: external.map((path, index) => ({ id: String(index), name: "External", path })),
+        },
+        providerInstanceId,
+        capabilities: undefined,
+      },
+      path,
+    ).pipe(Effect.flip);
+    assert.equal(error.externalRootCount, 2);
+  }).pipe(Effect.provide(NodePath.layerWin32)),
+);

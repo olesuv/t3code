@@ -14,7 +14,7 @@
  * @module CheckpointStore
  */
 import { VcsUnsupportedOperationError, type CheckpointRef } from "@t3tools/contracts";
-import * as NodePath from "node:path";
+import * as Path from "effect/Path";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -105,6 +105,7 @@ export class CheckpointStore extends Context.Service<
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
+  const path = yield* Path.Path;
   const vcsRegistry = yield* VcsDriverRegistry.VcsDriverRegistry;
 
   const resolveCheckpoints = Effect.fn("CheckpointStore.resolveCheckpoints")(function* (
@@ -129,8 +130,7 @@ export const make = Effect.gen(function* () {
         Effect.map(
           (handle) =>
             handle !== null &&
-            (!requireRoot ||
-              NodePath.resolve(handle.repository.rootPath) === NodePath.resolve(cwd)),
+            (!requireRoot || path.resolve(handle.repository.rootPath) === path.resolve(cwd)),
         ),
       );
 

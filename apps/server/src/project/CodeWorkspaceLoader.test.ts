@@ -23,7 +23,7 @@ const fixture = Effect.fnUntraced(function* () {
   const meta = path.join(base, "meta");
   const children = ["one", "two"].map((name) => path.join(meta, name));
   const external = path.join(base, "external");
-  const plain = path.join(base, "plain");
+  const plain = path.join(base, "plain-你好-é-🚀");
   for (const dir of [meta, ...children, external, plain]) {
     yield* fs.makeDirectory(dir, { recursive: true });
   }
@@ -54,7 +54,7 @@ it.layer(layer)("CodeWorkspaceLoader", (it) => {
           { "path": "alias", "name": "Alias" },
           { "path": "two" },
           { "path": ${JSON.stringify(f.external)} },
-          { "path": "../plain" },
+          { "path": "../plain-你好-é-🚀" },
         ],
       }`,
         );
@@ -68,8 +68,27 @@ it.layer(layer)("CodeWorkspaceLoader", (it) => {
           "Alias",
           "two",
           "external",
-          "plain",
+          "plain-你好-é-🚀",
         ]);
+        const runner = yield* ProcessRunner.ProcessRunner;
+        const legacyId = Effect.fnUntraced(function* (kind: string, canonicalPath: string) {
+          const result = yield* runner.run({
+            command: process.execPath,
+            args: [
+              "-e",
+              'process.stdout.write(require("node:crypto").createHash("sha256").update(process.argv[1]).digest("hex"))',
+              canonicalPath,
+            ],
+          });
+          expect(result.code).toBe(0);
+          return `${kind}-${result.stdout}`;
+        });
+        for (const folder of loaded.workspace.folders) {
+          expect(folder.id).toBe(yield* legacyId("folder", folder.path));
+        }
+        for (const repository of loaded.workspace.repositories) {
+          expect(repository.id).toBe(yield* legacyId("repository", repository.checkoutPath));
+        }
         expect(loaded.workspace.folders[0]?.id).toBe(loaded.workspace.folders[2]?.id);
         expect(loaded.workspace.repositories.map((repo) => repo.checkoutPath)).toEqual([
           f.meta,

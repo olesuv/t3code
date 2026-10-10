@@ -58,6 +58,10 @@ export class ProviderTurnStartError extends Schema.TaggedError<ProviderTurnStart
   },
 ) {}
 
+const encodeWorkspaceFolders = Schema.encodeSync(
+  Schema.fromJsonString(Schema.Array(Schema.Struct({ name: Schema.String, path: Schema.String }))),
+);
+
 const isProviderTurnStartError = Schema.is(ProviderTurnStartError);
 
 /** Claude refuses to replace a process running background work before it reads the prompt. */
@@ -1167,7 +1171,7 @@ export const layer: Layer.Layer<
           if (!(yield* isCurrentAttemptInStatus("running"))) return;
           const start = compact ? session.compactThread! : session.startTurn;
           const workspaceContext = projection.thread.workspace
-            ? `This thread uses a multi-folder workspace. Its folders on this environment are:\n${JSON.stringify(projection.thread.workspace.folders.map(({ name, path }) => ({ name, path })))}\nUse these existing checkouts. Workspace worktrees and filesystem restore are not supported.`
+            ? `This thread uses a multi-folder workspace. Its folders on this environment are:\n${encodeWorkspaceFolders(projection.thread.workspace.folders.map(({ name, path }) => ({ name, path })))}\nUse these existing checkouts. Workspace worktrees and filesystem restore are not supported.`
             : "";
           const context = [workspaceContext, delivery.context, restartNote]
             .filter((part) => part !== "")
