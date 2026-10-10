@@ -5,7 +5,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useWorkspaceMutationRefresh } from "../../hooks/useWorkspaceMutationRefresh";
 import type { DraftId } from "../../composerDraftStore";
-import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../../diffPanelStore";
+import {
+  selectThreadDiffPanelRepositoryId,
+  selectThreadDiffPanelSelection,
+  useDiffPanelStore,
+} from "../../diffPanelStore";
 import { useCheckpointDiff } from "../../lib/checkpointDiffState";
 import { useThreadProjection } from "../../state/entities";
 import { useFilesystemReadAccess } from "../../state/filesystem";
@@ -33,7 +37,14 @@ export function WorkspaceDiffPanel(props: {
     [props.thread.environmentId, props.thread.id],
   );
   const [fullThread, setFullThread] = useState(false);
-  const [repositoryId, setRepositoryId] = useState<string | null>(null);
+  const repositoryId = useDiffPanelStore((state) =>
+    selectThreadDiffPanelRepositoryId(
+      state.repositoryIdByThreadKey,
+      threadRef,
+      workspace.repositories,
+    ),
+  );
+  const selectRepository = useDiffPanelStore((state) => state.selectRepository);
   const selection = useDiffPanelStore((state) =>
     selectThreadDiffPanelSelection(state.byThreadKey, threadRef),
   );
@@ -137,7 +148,7 @@ export function WorkspaceDiffPanel(props: {
         <Select
           items={repositoryItems}
           value={repository?.id ?? "all"}
-          onValueChange={(value) => setRepositoryId(value === "all" ? null : value)}
+          onValueChange={(value) => selectRepository(threadRef, value === "all" ? null : value)}
         >
           <SelectTrigger size="sm" aria-label="Diff repository">
             <SelectValue />
@@ -208,7 +219,7 @@ export function WorkspaceDiffPanel(props: {
                   type="button"
                   className="mb-4 flex w-full cursor-pointer flex-col gap-1 rounded-lg px-3 py-2 text-left hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring disabled:cursor-default disabled:opacity-64 disabled:hover:bg-transparent"
                   disabled={loading && groups === undefined}
-                  onClick={() => setRepositoryId(group.repository.id)}
+                  onClick={() => selectRepository(threadRef, group.repository.id)}
                 >
                   <span className="flex w-full min-w-0 items-center gap-2">
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">

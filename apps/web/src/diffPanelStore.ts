@@ -1,5 +1,5 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { RunId, ScopedThreadRef } from "@t3tools/contracts";
+import type { RunId, ScopedThreadRef, WorkspaceRepository } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -15,6 +15,8 @@ const DEFAULT_SELECTION: DiffPanelSelection = { kind: "unstaged" };
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;
   branchBaseRefByThreadKey: Record<string, string | null>;
+  repositoryIdByThreadKey: Record<string, string | null>;
+  selectRepository: (ref: ScopedThreadRef, repositoryId: string | null) => void;
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectTurn: (ref: ScopedThreadRef, turnId: RunId, filePath?: string) => void;
@@ -32,6 +34,14 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
     (set) => ({
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
+      repositoryIdByThreadKey: {},
+      selectRepository: (ref, repositoryId) =>
+        set((state) => ({
+          repositoryIdByThreadKey: {
+            ...state.repositoryIdByThreadKey,
+            [scopedThreadKey(ref)]: repositoryId,
+          },
+        })),
       selectGitScope: (ref, scope) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -107,13 +117,19 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       removeThread: (ref) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
-          if (!(threadKey in state.byThreadKey) && !(threadKey in state.branchBaseRefByThreadKey)) {
+          if (
+            !(threadKey in state.byThreadKey) &&
+            !(threadKey in state.branchBaseRefByThreadKey) &&
+            !(threadKey in state.repositoryIdByThreadKey)
+          ) {
             return state;
           }
           const { [threadKey]: _removed, ...byThreadKey } = state.byThreadKey;
           const { [threadKey]: _removedBaseRef, ...branchBaseRefByThreadKey } =
             state.branchBaseRefByThreadKey;
-          return { byThreadKey, branchBaseRefByThreadKey };
+          const { [threadKey]: _removedRepositoryId, ...repositoryIdByThreadKey } =
+            state.repositoryIdByThreadKey;
+          return { byThreadKey, branchBaseRefByThreadKey, repositoryIdByThreadKey };
         }),
     }),
     {
@@ -125,6 +141,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       partialize: (state) => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,
+        repositoryIdByThreadKey: state.repositoryIdByThreadKey,
       }),
     },
   ),
@@ -136,4 +153,13 @@ export function selectThreadDiffPanelSelection(
 ): DiffPanelSelection {
   if (!ref) return DEFAULT_SELECTION;
   return byThreadKey[scopedThreadKey(ref)] ?? DEFAULT_SELECTION;
+}
+
+export function selectThreadDiffPanelRepositoryId(
+  repositoryIdByThreadKey: Record<string, string | null>,
+  ref: ScopedThreadRef,
+  repositories: ReadonlyArray<Pick<WorkspaceRepository, "id">>,
+): string | null {
+  const repositoryId = repositoryIdByThreadKey[scopedThreadKey(ref)] ?? null;
+  return repositories.some((repository) => repository.id === repositoryId) ? repositoryId : null;
 }
