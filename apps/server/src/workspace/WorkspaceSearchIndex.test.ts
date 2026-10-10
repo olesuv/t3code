@@ -4,6 +4,7 @@ import {
   type GrepCursor,
   type GrepOptions,
   type GrepResult,
+  type Score,
 } from "@ff-labs/fff-node";
 import { afterEach, expect, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
@@ -30,6 +31,21 @@ function fileItem(relativePath: string): FileItem {
   };
 }
 
+function score(total: number): Score {
+  return {
+    total,
+    baseScore: total,
+    filenameBonus: 0,
+    specialFilenameBonus: 0,
+    frecencyBoost: 0,
+    distancePenalty: 0,
+    currentFilePenalty: 0,
+    comboMatchBoost: 0,
+    exactMatch: false,
+    matchType: "fuzzy",
+  };
+}
+
 it.effect("filters image searches before applying the result limit", () =>
   Effect.scoped(
     Effect.gen(function* () {
@@ -41,7 +57,7 @@ it.effect("filters image searches before applying the result limit", () =>
         ok: true as const,
         value: {
           items,
-          scores: [],
+          scores: items.map((_, index) => score(1_000 - index)),
           totalMatched: items.length,
           totalFiles: items.length,
         },
@@ -59,6 +75,8 @@ it.effect("filters image searches before applying the result limit", () =>
 
       expect(resultWithoutKind.entries).toEqual([{ kind: "file", path: "public/icon.svg" }]);
       expect(resultWithDirectoryKind.entries).toEqual([{ kind: "file", path: "public/icon.svg" }]);
+      expect(resultWithoutKind.scores).toEqual([800]);
+      expect(resultWithDirectoryKind.scores).toEqual([800]);
       expect(fileSearch).toHaveBeenCalledTimes(2);
       expect(fileSearch).toHaveBeenCalledWith("", { pageSize: 25_002 });
     }),
@@ -153,7 +171,7 @@ it.effect("returns partial path results when the initial scan times out", () =>
             },
             { type: "file" as const, item: fileItem("src/index.ts") },
           ],
-          scores: [],
+          scores: [score(100), score(80)],
           totalMatched: 2,
           totalFiles: 1,
         },
@@ -183,7 +201,7 @@ it.effect("returns partial path results when the initial scan times out", () =>
               },
               { type: "file" as const, item: fileItem("src/index.ts") },
             ],
-            scores: [],
+            scores: [score(100), score(80)],
             totalMatched: 2,
             totalFiles: 1,
           },
@@ -200,6 +218,10 @@ it.effect("returns partial path results when the initial scan times out", () =>
         ],
         truncated: true,
       });
+      expect(search.entries).toEqual(list.entries);
+      expect(search.scores).toEqual([100, 80]);
+      expect(searchCompletingDuringQuery.scores).toEqual([100, 80]);
+      expect(completedSearch.scores).toEqual([100, 80]);
       expect(search.truncated).toBe(true);
       expect(searchCompletingDuringQuery.truncated).toBe(true);
       expect(completedSearch.truncated).toBe(false);
