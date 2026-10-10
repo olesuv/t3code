@@ -25,6 +25,7 @@ import * as Schema from "effect/Schema";
 import * as GitWorkflowService from "../git/GitWorkflowService.ts";
 import * as ProjectService from "../project/ProjectService.ts";
 import * as ProviderAuthService from "../provider/ProviderAuthService.ts";
+import { parseCodexGoalCommand } from "./Adapters/codexGoalCommand.ts";
 import * as EventSink from "./EventSink.ts";
 import * as ContextHandoffService from "./ContextHandoffService.ts";
 import {
@@ -1222,11 +1223,17 @@ export const layer: Layer.Layer<
                 }),
           ),
         );
+      // Native goal commands must reach Codex as the original message. Existing
+      // handoff and continuation delivery still takes precedence.
       const deliverySession =
         effectiveHandoffs.length === 0 &&
         missedItems.length === 0 &&
         restartNote === "" &&
-        !projection.thread.workspace &&
+        (!projection.thread.workspace ||
+          (session.driver === "codex" &&
+            message.attachments.length === 0 &&
+            run.restartContinuationOfRunId === undefined &&
+            parseCodexGoalCommand(message.text) !== null)) &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);

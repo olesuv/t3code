@@ -8461,7 +8461,7 @@ describe("CodexAdapterV2 post-settle continuation", () => {
       ),
     );
 
-    it.effect("settles /goal pause with a reply instead of a native turn", () =>
+    it.effect("settles workspace /goal pause with a reply instead of a native turn", () =>
       Effect.gen(function* () {
         const transcript = makeCodexReplayTranscript({
           scenario: "goal-pause",
@@ -8482,7 +8482,19 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           ],
         });
         const harness = yield* makeCodexReplayHarness(transcript);
-        yield* harness.runtime.startTurn(yield* goalTurnInput(harness, "/goal pause"));
+        const turnInput = yield* goalTurnInput(harness, "/goal pause");
+        yield* harness.runtime.startTurn({
+          ...turnInput,
+          appThread: {
+            ...turnInput.appThread,
+            workspace: {
+              filePath: "/meta/all.code-workspace",
+              workspaceRoot: "/meta",
+              folders: [{ id: "first", name: "First", path: "/meta/first" }],
+              repositories: [],
+            },
+          },
+        });
         yield* harness.firstTerminal;
 
         assert.deepEqual(

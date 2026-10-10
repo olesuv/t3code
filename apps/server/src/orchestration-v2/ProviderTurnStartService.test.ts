@@ -452,19 +452,21 @@ function makeLocalCommandHarness(input: {
     (input: RunExecutionService.RunExecutionServiceV2StartRootRunInput) => Effect.Effect<void>
   >((controls) =>
     input.successfulNativeTurn === true
-      ? controls.session.startTurn({
-          appThread: controls.appThread,
-          threadId: controls.appThread.id,
-          runId: controls.run.id,
-          runOrdinal: controls.run.ordinal,
-          providerTurnOrdinal: controls.providerTurnOrdinal,
-          attemptId: controls.attemptId,
-          rootNodeId: controls.rootNode.id,
-          providerThread: controls.providerThread,
-          message: controls.message,
-          modelSelection: controls.modelSelection,
-          runtimePolicy: controls.runtimePolicy,
-        })
+      ? controls.session
+          .startTurn({
+            appThread: controls.appThread,
+            threadId: controls.appThread.id,
+            runId: controls.run.id,
+            runOrdinal: controls.run.ordinal,
+            providerTurnOrdinal: controls.providerTurnOrdinal,
+            attemptId: controls.attemptId,
+            rootNodeId: controls.rootNode.id,
+            providerThread: controls.providerThread,
+            message: controls.message,
+            modelSelection: controls.modelSelection,
+            runtimePolicy: controls.runtimePolicy,
+          })
+          .pipe(Effect.orDie)
       : input.failReadsAfterRunning === true
         ? Effect.void
         : Effect.die("A local command must not start a native turn."),
@@ -479,7 +481,7 @@ function makeLocalCommandHarness(input: {
   );
   const tryHandlePromptCommand = vi.fn(() =>
     input.logoutFailure === undefined
-      ? Effect.succeed(true)
+      ? Effect.succeed(input.successfulNativeTurn !== true)
       : Effect.fail(
           new ProviderSetupError({
             instanceId: oldInstanceId,
@@ -927,3 +929,32 @@ effectIt.effect("delivers frozen workspace context in an ordinary native provide
     expect(harness.events.some((event) => event.type === "context-handoff.updated")).toBe(false);
   }),
 );
+
+for (const text of [
+  "/goal",
+  "/goal edit",
+  "/goal pause",
+  "/goal resume",
+  "/goal clear",
+  "/goal fix tests",
+]) {
+  effectIt.effect(`keeps workspace Codex command ${text} available to the native adapter`, () =>
+    Effect.gen(function* () {
+      const harness = makeLocalCommandHarness({
+        text,
+        workspace: {
+          filePath: "/meta/all.code-workspace",
+          workspaceRoot: "/meta",
+          folders: [{ id: "first", name: "First", path: "/meta/first" }],
+          repositories: [],
+        },
+        successfulNativeTurn: true,
+      });
+      yield* harness.start;
+      expect(harness.startTurn).toHaveBeenCalledOnce();
+      expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe(text);
+      expect(harness.getTurnStartHistory).not.toHaveBeenCalled();
+      expect(harness.events.some((event) => event.type === "context-handoff.updated")).toBe(false);
+    }),
+  );
+}
