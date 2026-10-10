@@ -1,7 +1,7 @@
 import { LegendList } from "@legendapp/list/react-native";
 import type { ProjectEntry } from "@t3tools/contracts";
 import { SymbolView } from "../../components/AppSymbol";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ActivityIndicator, Platform, Pressable, RefreshControl, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -103,6 +103,7 @@ const FileTreeRow = memo(function FileTreeRow(props: {
 });
 
 export function FileTreeBrowser(props: {
+  readonly header?: ReactNode;
   readonly entries: ReadonlyArray<ProjectEntry>;
   readonly error: string | null;
   readonly isPending: boolean;
@@ -263,6 +264,7 @@ export function FileTreeBrowser(props: {
       renderItem={renderItem}
       ListHeaderComponent={
         <>
+          {props.header}
           {props.error && props.entries.length > 0 ? (
             <Text accessibilityRole="alert" className="mx-4 my-2 text-xs text-foreground-muted">
               {props.error}

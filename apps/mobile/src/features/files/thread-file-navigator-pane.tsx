@@ -97,11 +97,16 @@ export function ThreadFileNavigatorPane(props: {
     [foregroundColor, toggleAuxiliaryPane],
   );
 
+  const folderPicker = (
+    <WorkspaceFolderPicker roots={roots} selectedId={root?.id} onSelect={setSelectedRootId} />
+  );
+
   const fileTree = (
     <>
-      <WorkspaceFolderPicker roots={roots} selectedId={root?.id} onSelect={setSelectedRootId} />
+      {Platform.OS !== "ios" ? folderPicker : null}
       <FileTreeBrowser
         key={JSON.stringify([props.environmentId, cwd])}
+        header={Platform.OS === "ios" ? folderPicker : undefined}
         entries={entriesQuery.entries}
         loadingDirectories={entriesQuery.loadingDirectories}
         onLoadDirectory={entriesQuery.loadDirectory}

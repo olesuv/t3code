@@ -588,6 +588,14 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
     );
   }
 
+  const folderPicker = (
+    <WorkspaceFolderPicker
+      roots={roots}
+      selectedId={rootId}
+      onSelect={(rootId) => navigation.setParams({ rootId })}
+    />
+  );
+
   const content = (
     <>
       <FilesBrowserHeader
@@ -598,13 +606,10 @@ export function ThreadFilesTreeScreen(props: ThreadFilesRouteScreenProps) {
         onBack={handleReturnToThread}
       />
       <MaterialScreenContent insetHorizontal={layout.usesSplitView}>
-        <WorkspaceFolderPicker
-          roots={roots}
-          selectedId={rootId}
-          onSelect={(rootId) => navigation.setParams({ rootId })}
-        />
+        {Platform.OS !== "ios" ? folderPicker : null}
         <FileTreeBrowser
           key={JSON.stringify([environmentId, cwd])}
+          header={Platform.OS === "ios" ? folderPicker : undefined}
           entries={entriesQuery.entries}
           loadingDirectories={entriesQuery.loadingDirectories}
           onLoadDirectory={entriesQuery.loadDirectory}
