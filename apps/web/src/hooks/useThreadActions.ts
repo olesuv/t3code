@@ -25,6 +25,7 @@ import { useCallback, useMemo, useRef } from "react";
 
 import { getFallbackThreadIdAfterDelete, pinOrderKeyBetween } from "../components/Sidebar.logic";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useDiffPanelStore } from "../diffPanelStore";
 import { environmentSession, readEnvironmentScope } from "../state/session";
 import { terminalEnvironment } from "../state/terminal";
 import { appAtomRegistry } from "../rpc/atomRegistry";
@@ -451,6 +452,7 @@ export function useThreadActions() {
         if (result._tag === "Success") {
           refreshArchivedThreadsForEnvironment(target.environmentId);
           clearThreadPreviewState(target);
+          useDiffPanelStore.getState().removeThread(target);
         }
         return result;
       }
@@ -558,6 +560,7 @@ export function useThreadActions() {
       );
       clearTerminalUiState(threadRef);
       clearThreadPreviewState(threadRef);
+      useDiffPanelStore.getState().removeThread(threadRef);
 
       if (shouldNavigateToFallback) {
         const fallbackThread = fallbackThreadId

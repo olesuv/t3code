@@ -7,6 +7,8 @@ import {
   ThreadId,
   type ScopedThreadRef,
 } from "@t3tools/contracts";
+import { scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { useDiffPanelStore } from "../diffPanelStore";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/reactivity";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -36,6 +38,7 @@ const state = vi.hoisted(() => ({
   toasts: [] as string[],
   afterRequest: undefined as ((action: string) => void) | undefined,
   sessionLookupFails: false,
+  deleteResult: undefined as Promise<AsyncResult.AsyncResult<void, Error>> | undefined,
 }));
 
 vi.mock("react", () => ({
@@ -61,6 +64,7 @@ vi.mock("../state/use-atom-command", () => ({
       if (!state.scopes.get(request.environmentId)?.has(scope)) {
         return AsyncResult.failure(Cause.fail(new Error("Server denied the request")));
       }
+      if (action === "delete" && state.deleteResult) return state.deleteResult;
       state.afterRequest?.(action);
       return AsyncResult.success(undefined);
     },
@@ -230,6 +234,12 @@ beforeEach(() => {
   state.toasts = [];
   state.afterRequest = undefined;
   state.sessionLookupFails = false;
+  state.deleteResult = undefined;
+  useDiffPanelStore.setState({
+    byThreadKey: {},
+    branchBaseRefByThreadKey: {},
+    repositoryIdByThreadKey: {},
+  });
 });
 
 describe("thread action permissions", () => {
@@ -352,4 +362,61 @@ describe("thread action permissions", () => {
       consoleError.mockRestore();
     }
   });
+});
+
+describe("thread deletion diff state", () => {
+  it.each([false, true])(
+    "cleans only the deleted environment after successful deletion (archived: %s)",
+    async (archived) => {
+      if (archived) state.threads = [];
+      else Object.assign(state.threads[0]!, { runtime: null });
+      state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);
+      const otherEnvironment = { ...target, environmentId: primary };
+      for (const ref of [target, otherEnvironment]) {
+        useDiffPanelStore.getState().selectBranchBaseRef(ref, "main");
+        useDiffPanelStore.getState().selectRepository(ref, "repository");
+      }
+      const before = useDiffPanelStore.getState();
+      const deletion = deferred<AsyncResult.AsyncResult<void, Error>>();
+      state.deleteResult = deletion.promise;
+      const result = useThreadActions().deleteThread(target);
+      expect(state.requests).toContainEqual({
+        action: "delete",
+        environmentId: secondary,
+        input: { threadId: target.threadId },
+      });
+      expect(useDiffPanelStore.getState()).toBe(before);
+
+      deletion.resolve(AsyncResult.success(undefined));
+      expect((await result)._tag).toBe("Success");
+      const remaining = useDiffPanelStore.getState();
+      expect(remaining.byThreadKey).toEqual({
+        [scopedThreadKey(otherEnvironment)]: { kind: "branch", baseRef: "main" },
+      });
+      expect(remaining.branchBaseRefByThreadKey).toEqual({
+        [scopedThreadKey(otherEnvironment)]: "main",
+      });
+      expect(remaining.repositoryIdByThreadKey).toEqual({
+        [scopedThreadKey(otherEnvironment)]: "repository",
+      });
+    },
+  );
+
+  it.each([false, true])(
+    "retains diff state when deletion fails (archived: %s)",
+    async (archived) => {
+      if (archived) state.threads = [];
+      else Object.assign(state.threads[0]!, { runtime: null });
+      state.scopes.get(secondary)!.add(AuthOrchestrationOperateScope);
+      useDiffPanelStore.getState().selectBranchBaseRef(target, "main");
+      useDiffPanelStore.getState().selectRepository(target, "repository");
+      const before = useDiffPanelStore.getState();
+      state.deleteResult = Promise.resolve(
+        AsyncResult.failure(Cause.fail(new Error("Deletion rejected"))),
+      );
+
+      expect((await useThreadActions().deleteThread(target))._tag).toBe("Failure");
+      expect(useDiffPanelStore.getState()).toBe(before);
+    },
+  );
 });
