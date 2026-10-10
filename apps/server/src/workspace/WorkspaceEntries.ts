@@ -303,55 +303,81 @@ export const make = Effect.gen(function* () {
     },
   );
 
+  const searchRoot = Effect.fn("WorkspaceEntries.searchRoot")(function* (
+    cwd: string,
+    query: string,
+    limit: number,
+    kind?: ProjectSearchEntriesInput["kind"],
+    imageOnly?: boolean,
+  ) {
+    const normalizedCwd = yield* normalizeWorkspaceRoot(cwd);
+    const normalizedQuery = normalizeSearchQuery(query, {
+      trimLeadingPattern: /^[@./]+/,
+    });
+    return yield* Effect.gen(function* () {
+      const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
+      return yield* searchIndex.search(normalizedQuery, limit, kind, imageOnly);
+    }).pipe(
+      Effect.provide(
+        workspaceSearchIndexes.get(
+          WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "paths"),
+        ),
+      ),
+    );
+  });
+
   const search: WorkspaceEntries["Service"]["search"] = Effect.fn("WorkspaceEntries.search")(
     function* (input) {
       const roots = yield* resolveRoots(input);
       if (roots) {
         const matchingRoots = roots.filter((root) => input.query.startsWith(`${root.name}/`));
         const selected = matchingRoots.length ? matchingRoots : roots;
-        const perRootLimit = Math.max(1, Math.floor(input.limit / Math.max(1, selected.length)));
         const results = yield* Effect.forEach(
-          selected.slice(0, input.limit),
+          selected,
           (root) =>
-            search({
-              cwd: root.path,
-              query: matchingRoots.length ? input.query.slice(root.name.length + 1) : input.query,
-              limit: perRootLimit,
-              ...(input.kind ? { kind: input.kind } : {}),
-              ...(input.imageOnly ? { imageOnly: true } : {}),
-            }).pipe(
+            searchRoot(
+              root.path,
+              matchingRoots.length ? input.query.slice(root.name.length + 1) : input.query,
+              input.limit,
+              input.kind,
+              input.imageOnly,
+            ).pipe(
               Effect.map((result) => ({ root, result, error: null })),
               Effect.catch((cause) => Effect.succeed({ root, result: null, error: cause.message })),
             ),
           { concurrency: 4 },
         );
+        const ranked = results
+          .flatMap(
+            (entry) =>
+              entry.result?.entries.map((file, index) => ({
+                file: { ...file, root: entry.root },
+                score: entry.result!.scores[index]!,
+              })) ?? [],
+          )
+          .toSorted(
+            (left, right) =>
+              right.score - left.score ||
+              left.file.root.id.localeCompare(right.file.root.id) ||
+              left.file.path.localeCompare(right.file.path),
+          );
         return {
-          entries: results
-            .flatMap(
-              (entry) => entry.result?.entries.map((file) => ({ ...file, root: entry.root })) ?? [],
-            )
-            .slice(0, input.limit),
+          entries: ranked.slice(0, input.limit).map((entry) => entry.file),
           truncated:
-            selected.length > input.limit || results.some((entry) => entry.result?.truncated),
+            ranked.length > input.limit || results.some((entry) => entry.result?.truncated),
           rootErrors: results.flatMap((entry) =>
             entry.error ? [{ root: entry.root, message: entry.error }] : [],
           ),
         };
       }
-      const normalizedCwd = yield* normalizeWorkspaceRoot(input.cwd);
-      const normalizedQuery = normalizeSearchQuery(input.query, {
-        trimLeadingPattern: /^[@./]+/,
-      });
-      return yield* Effect.gen(function* () {
-        const searchIndex = yield* WorkspaceSearchIndex.WorkspaceSearchIndex;
-        return yield* searchIndex.search(normalizedQuery, input.limit, input.kind, input.imageOnly);
-      }).pipe(
-        Effect.provide(
-          workspaceSearchIndexes.get(
-            WorkspaceSearchIndex.workspaceSearchIndexKey(normalizedCwd, "paths"),
-          ),
-        ),
+      const result = yield* searchRoot(
+        input.cwd,
+        input.query,
+        input.limit,
+        input.kind,
+        input.imageOnly,
       );
+      return { entries: result.entries, truncated: result.truncated };
     },
   );
 
