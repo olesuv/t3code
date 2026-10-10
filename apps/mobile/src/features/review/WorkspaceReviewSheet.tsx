@@ -1,8 +1,10 @@
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
+import { useNavigation } from "@react-navigation/native";
 import { Pressable, ScrollView, View } from "react-native";
 import type { CodeWorkspace, WorkspaceRepository } from "@t3tools/contracts";
 
 import { AppText as Text } from "../../components/AppText";
+import { ScreenHeader } from "../../components/ScreenHeader";
 import { MaterialScreenContent } from "../../components/MaterialScreenContent";
 import { useEnvironmentQuery } from "../../state/query";
 import { reviewEnvironment } from "../../state/review";
@@ -24,6 +26,17 @@ export function WorkspaceReviewSheet(
   },
 ) {
   const { environmentId, threadId } = props.route.params;
+  const navigation = useNavigation();
+  const handleReturnToThread = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate("Thread", {
+      environmentId: String(environmentId),
+      threadId: String(threadId),
+    });
+  }, [environmentId, navigation, threadId]);
   const [repositoryId, setRepositoryId] = useState<string | null>(null);
   const [scope, setScope] = useState("branch");
   const repository = props.workspace.repositories.find((entry) => entry.id === repositoryId);
@@ -84,90 +97,97 @@ export function WorkspaceReviewSheet(
   const error = checkpoint ? history.error : preview.error;
   const pending = checkpoint ? history.isPending : preview.isPending;
   return (
-    <MaterialScreenContent>
-      <ScrollView
-        className="flex-1 bg-sheet android:bg-sheet-solid"
-        contentContainerStyle={{ padding: 16 }}
-      >
-        <Text className="mb-3 text-lg font-semibold">All repositories</Text>
-        <ScrollView horizontal className="mb-3" showsHorizontalScrollIndicator={false}>
-          {[
-            { id: "branch", title: "Changes" },
-            { id: "unstaged", title: "Uncommitted" },
-            ...(turns.length ? [{ id: "thread", title: "Full thread" }] : []),
-            ...turns.map((entry) => ({
-              id: `turn:${entry.appRunOrdinal}`,
-              title: `Turn ${entry.appRunOrdinal}`,
-            })),
-          ].map((entry) => (
-            <Pressable
-              key={entry.id}
-              accessibilityRole="button"
-              accessibilityState={{ selected: scope === entry.id }}
-              onPress={() => setScope(entry.id)}
-              className="mr-3 py-2"
-            >
-              <Text className={scope === entry.id ? "font-semibold" : "text-muted-foreground"}>
-                {entry.title}
-              </Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-        {access.isPending || pending ? (
-          <Text>Loading repository changes…</Text>
-        ) : !access.canReadFiles ? (
-          <Text>File access is required to review workspace changes.</Text>
-        ) : error ? (
-          <Text accessibilityRole="alert">{error}</Text>
-        ) : null}
-        {access.canReadFiles &&
-          groups?.map((group) => (
-            <View key={group.repository.id} className="mb-4">
+    <>
+      <ScreenHeader
+        title="All repositories"
+        onBack={handleReturnToThread}
+        backInSplitView={{ accessibilityLabel: "Back to chat", icon: "chevron.left" }}
+      />
+      <MaterialScreenContent>
+        <ScrollView
+          className="flex-1 bg-sheet android:bg-sheet-solid"
+          contentInsetAdjustmentBehavior="automatic"
+          contentContainerStyle={{ padding: 16 }}
+        >
+          <ScrollView horizontal className="mb-3" showsHorizontalScrollIndicator={false}>
+            {[
+              { id: "branch", title: "Changes" },
+              { id: "unstaged", title: "Uncommitted" },
+              ...(turns.length ? [{ id: "thread", title: "Full thread" }] : []),
+              ...turns.map((entry) => ({
+                id: `turn:${entry.appRunOrdinal}`,
+                title: `Turn ${entry.appRunOrdinal}`,
+              })),
+            ].map((entry) => (
               <Pressable
+                key={entry.id}
                 accessibilityRole="button"
-                onPress={() => setRepositoryId(group.repository.id)}
-                className="py-2"
+                accessibilityState={{ selected: scope === entry.id }}
+                onPress={() => setScope(entry.id)}
+                className="mr-3 py-2"
               >
-                <Text className="font-semibold">{group.repository.name}</Text>
-                <Text className="text-xs text-muted-foreground">
-                  {group.repository.checkoutPath}
+                <Text className={scope === entry.id ? "font-semibold" : "text-muted-foreground"}>
+                  {entry.title}
                 </Text>
               </Pressable>
-              {group.error ? (
-                <Text accessibilityRole="alert">{group.error}</Text>
-              ) : group.incomplete ? (
-                <Text>Summary incomplete. Open this repository to load changes.</Text>
-              ) : !group.files.length ? (
-                <Text className="text-muted-foreground">No changes</Text>
-              ) : (
-                group.files.map((file) => (
-                  <Pressable
-                    key={JSON.stringify([environmentId, group.repository.id, file.path])}
-                    accessibilityRole="button"
-                    onPress={() => setRepositoryId(group.repository.id)}
-                    className="py-2"
-                  >
-                    <Text>
-                      {file.path} · +{file.additions} −{file.deletions}
-                    </Text>
-                  </Pressable>
-                ))
-              )}
-            </View>
-          ))}
-        {!props.workspace.repositories.length ? (
-          <Text>This workspace has no Git repositories.</Text>
-        ) : null}
-        {access.canReadFiles ? (
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => (checkpoint ? history.refresh() : preview.refresh())}
-            className="py-2"
-          >
-            <Text>Refresh</Text>
-          </Pressable>
-        ) : null}
-      </ScrollView>
-    </MaterialScreenContent>
+            ))}
+          </ScrollView>
+          {access.isPending || pending ? (
+            <Text>Loading repository changes…</Text>
+          ) : !access.canReadFiles ? (
+            <Text>File access is required to review workspace changes.</Text>
+          ) : error ? (
+            <Text accessibilityRole="alert">{error}</Text>
+          ) : null}
+          {access.canReadFiles &&
+            groups?.map((group) => (
+              <View key={group.repository.id} className="mb-4">
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setRepositoryId(group.repository.id)}
+                  className="py-2"
+                >
+                  <Text className="font-semibold">{group.repository.name}</Text>
+                  <Text className="text-xs text-muted-foreground">
+                    {group.repository.checkoutPath}
+                  </Text>
+                </Pressable>
+                {group.error ? (
+                  <Text accessibilityRole="alert">{group.error}</Text>
+                ) : group.incomplete ? (
+                  <Text>Summary incomplete. Open this repository to load changes.</Text>
+                ) : !group.files.length ? (
+                  <Text className="text-muted-foreground">No changes</Text>
+                ) : (
+                  group.files.map((file) => (
+                    <Pressable
+                      key={JSON.stringify([environmentId, group.repository.id, file.path])}
+                      accessibilityRole="button"
+                      onPress={() => setRepositoryId(group.repository.id)}
+                      className="py-2"
+                    >
+                      <Text>
+                        {file.path} · +{file.additions} −{file.deletions}
+                      </Text>
+                    </Pressable>
+                  ))
+                )}
+              </View>
+            ))}
+          {!props.workspace.repositories.length ? (
+            <Text>This workspace has no Git repositories.</Text>
+          ) : null}
+          {access.canReadFiles ? (
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => (checkpoint ? history.refresh() : preview.refresh())}
+              className="py-2"
+            >
+              <Text>Refresh</Text>
+            </Pressable>
+          ) : null}
+        </ScrollView>
+      </MaterialScreenContent>
+    </>
   );
 }

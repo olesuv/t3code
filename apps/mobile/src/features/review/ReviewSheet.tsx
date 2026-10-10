@@ -79,6 +79,7 @@ function ReviewHeader(
     readonly showChangedFilesToggle: boolean;
     readonly onSelectSection: (sectionId: string) => void;
     readonly onReturnToThread: () => void;
+    readonly onShowAllRepositories?: () => void;
   },
 ) {
   const { panes, toggleAuxiliaryPane } = useAdaptiveWorkspaceLayout();
@@ -103,20 +104,29 @@ function ReviewHeader(
       hideBottomBorder
       options={{ headerTintColor: props.iconColor, headerTitle: props.title }}
       backInSplitView={{ accessibilityLabel: "Back to chat", icon: "chevron.left" }}
-      actions={
-        props.showChangedFilesToggle
+      actions={[
+        ...(props.onShowAllRepositories
+          ? [
+              {
+                accessibilityLabel: "All repositories",
+                icon: "square.grid.2x2" as const,
+                onPress: props.onShowAllRepositories,
+              },
+            ]
+          : []),
+        ...(props.showChangedFilesToggle
           ? [
               {
                 accessibilityLabel: panes.auxiliaryPaneVisible
                   ? "Hide changed files"
                   : "Show changed files",
-                icon: "sidebar.right",
+                icon: "sidebar.right" as const,
                 selected: panes.auxiliaryPaneVisible,
                 onPress: toggleAuxiliaryPane,
               },
             ]
-          : undefined
-      }
+          : []),
+      ]}
       menus={[
         ...(presentation.gitMenu ? [presentation.gitMenu] : []),
         ...(props.showSectionToolbar
@@ -785,15 +795,11 @@ function RepositoryReviewSheet(
         onRefresh={handlePullToRefresh}
         onSelectSection={selectSection}
         onReturnToThread={handleReturnToThread}
+        onShowAllRepositories={props.showAll}
       />
 
       <MaterialScreenContent>
         <View className="flex-1 bg-sheet android:bg-sheet-solid">
-          {props.showAll ? (
-            <Pressable accessibilityRole="button" onPress={props.showAll} className="px-4 py-2">
-              <Text>All repositories</Text>
-            </Pressable>
-          ) : null}
           {showConnectionNotice ? (
             <View className="flex-1" style={{ paddingTop: topContentInset }}>
               <EnvironmentConnectionNotice
