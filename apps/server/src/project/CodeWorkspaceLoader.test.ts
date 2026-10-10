@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
+import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import * as ProcessRunner from "../processRunner.ts";
 import * as CodeWorkspaceLoader from "./CodeWorkspaceLoader.ts";
@@ -108,6 +109,54 @@ it.layer(layer)("CodeWorkspaceLoader", (it) => {
         expect((yield* loader.load(first)).workspace.folders).toEqual([]);
         expect(a.workspace.folders).toHaveLength(1);
       }),
+  );
+
+  it.effect.each([
+    ["fatal: not a git repository (or any of the parent directories): .git", true],
+    ["fatal: cannot open .git/config: Permission denied", false],
+    ["fatal: bad config line 1 in file .git/config", false],
+  ] as const)("handles Git discovery failure: %s", ([stderr, isNonGit]) =>
+    Effect.gen(function* () {
+      const f = yield* fixture();
+      const filePath = f.path.join(f.plain, "localized.code-workspace");
+      yield* f.fs.makeDirectory(f.path.join(f.plain, "folder"));
+      yield* f.fs.writeFileString(filePath, '{"folders": [{"path": "folder"}]}');
+      const calls: ProcessRunner.ProcessRunInput[] = [];
+      const mockProcesses = Layer.succeed(ProcessRunner.ProcessRunner, {
+        run: (input) => {
+          calls.push(input);
+          return Effect.succeed({
+            stdout: "",
+            stderr:
+              input.env?.LC_ALL === "C"
+                ? stderr
+                : "fatal : ni ceci ni aucun de ses répertoires parents n'est un dépôt git : .git",
+            code: ChildProcessSpawner.ExitCode(128),
+            timedOut: false,
+            stdoutTruncated: false,
+            stderrTruncated: false,
+            stdoutInvalidUtf8: false,
+            stderrInvalidUtf8: false,
+          });
+        },
+      });
+      yield* Effect.gen(function* () {
+        const loader = yield* CodeWorkspaceLoader.CodeWorkspaceLoader;
+        if (isNonGit) {
+          const loaded = yield* loader.load(filePath);
+          expect(loaded.workspaceRoot).toBe(f.plain);
+          expect(loaded.workspace.repositories).toEqual([]);
+          expect(loaded.workspace.folders[0]?.path).toBe(f.path.join(f.plain, "folder"));
+          expect(calls).toHaveLength(2);
+        } else {
+          const error = yield* loader.load(filePath).pipe(Effect.flip);
+          expect(error.reason).toBe("git");
+        }
+      }).pipe(
+        Effect.provide(Layer.fresh(CodeWorkspaceLoader.layer).pipe(Layer.provide(mockProcesses))),
+      );
+      expect(calls.every((input) => input.env?.LC_ALL === "C")).toBe(true);
+    }),
   );
 
   it.effect.each([

@@ -165,6 +165,7 @@ const make = Effect.gen(function* () {
           .run({
             command: "git",
             args: ["-C", cwd, "rev-parse", "--show-toplevel"],
+            env: { LC_ALL: "C" },
             timeout: "10 seconds",
           })
           .pipe(
