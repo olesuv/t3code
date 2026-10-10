@@ -1,4 +1,10 @@
-import { CheckpointScopeId, ProjectId, RunId, ThreadId } from "@t3tools/contracts";
+import {
+  CheckpointScopeId,
+  ProjectId,
+  RunId,
+  ThreadId,
+  workspaceFileRoots,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -32,6 +38,8 @@ export class RunFinalizationObserver extends Context.Reference<{
     readonly cwd: string;
     readonly threadId: ThreadId;
     readonly runId: RunId;
+    readonly refreshGit?: boolean;
+    readonly workspaceRepository?: boolean;
   }) => Effect.Effect<void, RunFinalizationRefreshError>;
 }>("t3/orchestration-v2/RunFinalizationObserver", {
   defaultValue: () => ({ refresh: () => Effect.void, refreshAfterTurn: () => Effect.void }),
@@ -70,17 +78,55 @@ const make = Effect.gen(function* () {
           (cause) => new RunFinalizationError({ ...input, operation: "refresh-workspace", cause }),
         ),
       );
-    const cwd = projection.checkpointScopes.find((scope) => scope.id === input.scopeId)?.cwd;
-    if (cwd !== undefined) {
+    const scope = projection.checkpointScopes.find((scope) => scope.id === input.scopeId);
+    if (scope === undefined) return;
+    const thread = yield* projections
+      .getThreadShell(input.threadId)
+      .pipe(
+        Effect.mapError(
+          (cause) => new RunFinalizationError({ ...input, operation: "refresh-workspace", cause }),
+        ),
+      );
+    const workspace = scope.kind === "root_run" && !thread?.worktreePath ? thread?.workspace : null;
+    if (!workspace) {
       yield* observer
-        .refresh({ cwd, threadId: input.threadId, runId: input.runId })
+        .refresh({ cwd: scope.cwd, threadId: input.threadId, runId: input.runId })
         .pipe(
           Effect.mapError(
             (cause) =>
               new RunFinalizationError({ ...input, operation: "refresh-workspace", cause }),
           ),
         );
+      return;
     }
+    const repositories = workspace.repositories;
+    const gitRoots = new Set(repositories.map((repository) => repository.checkoutPath));
+    const roots = new Set([
+      scope.cwd,
+      ...workspaceFileRoots(workspace).map((root) => root.path),
+      ...gitRoots,
+    ]);
+    yield* Effect.forEach(
+      roots,
+      (cwd) =>
+        observer
+          .refresh({
+            cwd,
+            threadId: input.threadId,
+            runId: input.runId,
+            refreshGit: gitRoots.has(cwd),
+            workspaceRepository: gitRoots.has(cwd),
+          })
+          .pipe(
+            Effect.catch(() =>
+              Effect.logWarning("failed to refresh workspace root after run completion", {
+                threadId: input.threadId,
+                cwd,
+              }),
+            ),
+          ),
+      { concurrency: 4, discard: true },
+    );
   });
   return RunFinalizationService.of({ finalize });
 });
@@ -96,15 +142,24 @@ export const layerObserver = Layer.effect(
     const pullRequests = yield* PullRequestService.PullRequestService;
     return {
       refreshAfterTurn: pullRequests.refreshAfterTurn,
-      refresh: ({ cwd, threadId, runId }) =>
+      refresh: ({ cwd, threadId, runId, refreshGit = true, workspaceRepository = false }) =>
         Effect.gen(function* () {
+          if (!refreshGit) {
+            yield* workspaceEntries.refresh(cwd);
+            return;
+          }
           const [, local] = yield* Effect.all(
             [workspaceEntries.refresh(cwd), vcsStatus.refreshLocalStatus(cwd)],
             { concurrency: "unbounded" },
           );
           if (local.refName === null || local.isDefaultRef) return;
           const thread = yield* projections.getThreadShell(threadId);
-          if (!thread || thread.branch !== local.refName) return;
+          if (!thread) return;
+          if (
+            !(workspaceRepository && thread.workspace && !thread.worktreePath) &&
+            thread.branch !== local.refName
+          )
+            return;
           if (thread.activeRunId !== null && thread.activeRunId !== runId) return;
           yield* vcsStatus.refreshPullRequestStatus(cwd).pipe(
             Effect.catch((error) =>
