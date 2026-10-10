@@ -1,4 +1,5 @@
 import "vite-plus/test/config";
+import * as NodeURL from "node:url";
 import { defineConfig, mergeConfig } from "vite-plus";
 
 import baseConfig from "../../vite.config.ts";
@@ -82,6 +83,11 @@ export default mergeConfig(
       outDir: packExecutable ? "dist-exe" : "dist",
       sourcemap: !packExecutable,
       clean: true,
+      // The UMD entry shadows `require` in its factory, leaving relative
+      // imports unresolved in the bundle. Inline the package's ESM entry.
+      alias: {
+        "jsonc-parser$": NodeURL.fileURLToPath(import.meta.resolve("jsonc-parser/lib/esm/main.js")),
+      },
       ...(packExecutable
         ? {
             exe: {
