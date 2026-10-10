@@ -83,6 +83,12 @@ describe("openDiffFilePrimaryAction", () => {
       external: "D:/other/backend",
       folderOffset: "/packages/app",
     },
+    {
+      workspaceRoot: "E:\\Work\\FinBeat",
+      nested: "E:\\Work\\FinBeat\\Kubernetes\\kubernetes-pak-cl-dev",
+      external: "F:\\Work\\kubernetes-pak-cl-dev",
+      folderOffset: "",
+    },
   ])(
     "keeps identical diff filenames in separate repository surfaces: $workspaceRoot",
     ({ workspaceRoot, nested, external, folderOffset }) => {
@@ -121,7 +127,10 @@ describe("openDiffFilePrimaryAction", () => {
           const root = roots.find((root) => root.id === surface.rootId)!;
           return resolvePathLinkTarget(surface.relativePath, root.path).replaceAll("\\", "/");
         }),
-      ).toEqual([`${nested}/src/index.ts`, `${external}/src/index.ts`]);
+      ).toEqual([
+        `${nested.replaceAll("\\", "/")}/src/index.ts`,
+        `${external.replaceAll("\\", "/")}/src/index.ts`,
+      ]);
       expect(openInEditor).not.toHaveBeenCalled();
       openDiffFilePrimaryAction({
         threadRef: null,
@@ -132,7 +141,7 @@ describe("openDiffFilePrimaryAction", () => {
         openInEditor,
       });
       expect(openInEditor.mock.calls[0]?.[0].replaceAll("\\", "/")).toBe(
-        `${external}/src/index.ts`,
+        `${external.replaceAll("\\", "/")}/src/index.ts`,
       );
     },
   );
