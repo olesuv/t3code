@@ -100,6 +100,7 @@ export function WorkspaceReviewSheet(
     <>
       <ScreenHeader
         title="All repositories"
+        options={{ headerTitle: "All repositories" }}
         onBack={handleReturnToThread}
         backInSplitView={{ accessibilityLabel: "Back to chat", icon: "chevron.left" }}
       />
