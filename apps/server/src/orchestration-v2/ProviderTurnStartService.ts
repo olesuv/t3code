@@ -1226,6 +1226,7 @@ export const layer: Layer.Layer<
         effectiveHandoffs.length === 0 &&
         missedItems.length === 0 &&
         restartNote === "" &&
+        !projection.thread.workspace &&
         !noteContinuation
           ? session
           : makeDeliverySession(session, startWithHandoffs);

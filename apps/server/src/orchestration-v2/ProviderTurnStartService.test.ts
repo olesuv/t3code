@@ -155,6 +155,8 @@ it("does not commit running state when inherited background routing cannot be re
 
 function makeLocalCommandHarness(input: {
   readonly text: string;
+  readonly workspace?: OrchestrationV2ThreadProjection["thread"]["workspace"];
+  readonly successfulNativeTurn?: boolean;
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
   readonly logoutFailure?: string;
@@ -238,6 +240,7 @@ function makeLocalCommandHarness(input: {
       activeProviderThreadId: providerThreadId,
       branch: null,
       worktreePath: null,
+      workspace: input.workspace,
     } as OrchestrationV2ThreadProjection["thread"],
     runs: [
       ...(input.previousNativeSession
@@ -393,6 +396,17 @@ function makeLocalCommandHarness(input: {
       ),
     ensureThread: () => Effect.succeed(providerThread),
   };
+  const startTurn = vi.fn<ProviderAdapter.ProviderAdapterV2SessionRuntime["startTurn"]>(
+    () => Effect.void,
+  );
+  const getTurnStartHistory = vi.fn(() =>
+    Effect.fail(
+      new ProjectionStore.ProjectionStoreReadError({
+        threadId,
+        cause: input.historyReadFailureAfterFallback,
+      }),
+    ),
+  );
   const open = vi.fn(() =>
     input.interruptOpen === true
       ? Effect.interrupt
@@ -414,7 +428,7 @@ function makeLocalCommandHarness(input: {
                   ),
                 ),
               )
-            : input.failReadsAfterRunning === true
+            : input.failReadsAfterRunning === true || input.successfulNativeTurn === true
               ? Effect.succeed({
                   driver: providerThread.driver,
                   providerSession: {
@@ -430,15 +444,30 @@ function makeLocalCommandHarness(input: {
                     lastError: null,
                   },
                   ensureThread: () => Effect.succeed(providerThread),
+                  startTurn,
                 } as never)
               : Effect.die("A local command must not open a native session."),
   );
   const startRootRun = vi.fn<
     (input: RunExecutionService.RunExecutionServiceV2StartRootRunInput) => Effect.Effect<void>
-  >(() =>
-    input.failReadsAfterRunning === true
-      ? Effect.void
-      : Effect.die("A local command must not start a native turn."),
+  >((controls) =>
+    input.successfulNativeTurn === true
+      ? controls.session.startTurn({
+          appThread: controls.appThread,
+          threadId: controls.appThread.id,
+          runId: controls.run.id,
+          runOrdinal: controls.run.ordinal,
+          providerTurnOrdinal: controls.providerTurnOrdinal,
+          attemptId: controls.attemptId,
+          rootNodeId: controls.rootNode.id,
+          providerThread: controls.providerThread,
+          message: controls.message,
+          modelSelection: controls.modelSelection,
+          runtimePolicy: controls.runtimePolicy,
+        })
+      : input.failReadsAfterRunning === true
+        ? Effect.void
+        : Effect.die("A local command must not start a native turn."),
   );
   const failReadIfRunning = Effect.suspend(() =>
     input.failReadsAfterRunning === true &&
@@ -513,13 +542,7 @@ function makeLocalCommandHarness(input: {
                   (m.text.trim().toLowerCase() !== "/compact" || m.attachments.length > 0),
               ),
             }),
-          getTurnStartHistory: () =>
-            Effect.fail(
-              new ProjectionStore.ProjectionStoreReadError({
-                threadId,
-                cause: input.historyReadFailureAfterFallback,
-              }),
-            ),
+          getTurnStartHistory,
         }),
         Layer.mock(ProviderSessionManager.ProviderSessionManagerV2)({ open }),
         Layer.mock(ProviderAuthService.ProviderAuthService)({ tryHandlePromptCommand }),
@@ -531,6 +554,8 @@ function makeLocalCommandHarness(input: {
     ),
   );
   return {
+    startTurn,
+    getTurnStartHistory,
     open,
     writeIfRunCurrent,
     startRootRun,
@@ -855,3 +880,50 @@ for (const previousMessages of [[], ["/compact", " /COMPACT "]]) {
       }),
   );
 }
+
+for (const workspace of [undefined, null]) {
+  effectIt.effect(`keeps ordinary project prompts raw with workspace ${workspace}`, () =>
+    Effect.gen(function* () {
+      const text = "Inspect the repository";
+      const harness = makeLocalCommandHarness({ text, workspace, successfulNativeTurn: true });
+      yield* harness.start;
+      expect(harness.startTurn).toHaveBeenCalledOnce();
+      expect(harness.startTurn.mock.calls[0]?.[0].message.text).toBe(text);
+      expect(harness.getTurnStartHistory).not.toHaveBeenCalled();
+    }),
+  );
+}
+
+effectIt.effect("delivers frozen workspace context in an ordinary native provider prompt", () =>
+  Effect.gen(function* () {
+    const workspace = {
+      filePath: "/meta/all.code-workspace",
+      workspaceRoot: "/meta",
+      folders: [
+        { id: "first", name: 'Quotes " and \\ newline\n你好', path: "/meta/é\\folder\n🚀" },
+        { id: "second", name: "Second", path: "/external" },
+      ],
+      repositories: [],
+    };
+    const text = 'Inspect both repositories\n"你好"';
+    const harness = makeLocalCommandHarness({ text, workspace, successfulNativeTurn: true });
+    yield* harness.start;
+    expect(harness.startTurn).toHaveBeenCalledOnce();
+    const message = harness.startTurn.mock.calls[0]?.[0].message;
+    expect(message?.text).toContain(
+      JSON.stringify(workspace.folders.map(({ name, path }) => ({ name, path }))),
+    );
+    expect(message?.text).toContain(
+      "Use these existing checkouts. Workspace worktrees and filesystem restore are not supported.",
+    );
+    expect(message?.text).toContain(`User message:\n${text}`);
+    expect(message?.text.split(text)).toHaveLength(2);
+    expect(message).toEqual({
+      ...harness.startRootRun.mock.calls[0]?.[0].message,
+      text: message?.text,
+    });
+    expect(harness.projection().runs.at(-1)?.status).toBe("running");
+    expect(harness.getTurnStartHistory).not.toHaveBeenCalled();
+    expect(harness.events.some((event) => event.type === "context-handoff.updated")).toBe(false);
+  }),
+);
