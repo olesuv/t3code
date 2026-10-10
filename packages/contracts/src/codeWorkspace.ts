@@ -25,25 +25,31 @@ export const CodeWorkspace = Schema.Struct({
 });
 export type CodeWorkspace = typeof CodeWorkspace.Type;
 
-/** Files include the execution root as well as every declared named folder. */
+/** Files include execution, declared folders, and repository checkout roots. */
 export function workspaceFileRoots(workspace: CodeWorkspace): ReadonlyArray<WorkspaceFolder> {
-  if (workspace.folders.some((folder) => folder.path === workspace.workspaceRoot))
-    return workspace.folders;
   const repository = workspace.repositories.find(
     (entry) => entry.checkoutPath === workspace.workspaceRoot,
   );
-  return [
-    {
-      id: repository?.id ?? "workspace-root",
-      name:
-        repository?.name ??
-        workspace.workspaceRoot
-          .replace(/[\\/]+$/, "")
-          .split(/[\\/]/)
-          .at(-1) ??
-        "Workspace",
-      path: workspace.workspaceRoot,
-    },
-    ...workspace.folders,
-  ];
+  const roots = workspace.folders.some((folder) => folder.path === workspace.workspaceRoot)
+    ? [...workspace.folders]
+    : [
+        {
+          id: repository?.id ?? "workspace-root",
+          name:
+            repository?.name ??
+            workspace.workspaceRoot
+              .replace(/[\\/]+$/, "")
+              .split(/[\\/]/)
+              .at(-1) ??
+            "Workspace",
+          path: workspace.workspaceRoot,
+        },
+        ...workspace.folders,
+      ];
+  for (const repository of workspace.repositories) {
+    if (!roots.some((root) => root.path === repository.checkoutPath)) {
+      roots.push({ id: repository.id, name: repository.name, path: repository.checkoutPath });
+    }
+  }
+  return roots;
 }

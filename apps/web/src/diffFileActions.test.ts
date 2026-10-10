@@ -1,5 +1,6 @@
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { EnvironmentId, ThreadId, workspaceFileRoots } from "@t3tools/contracts";
+import { resolvePathLinkTarget } from "@t3tools/shared/fileLinks";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { openDiffFilePrimaryAction, resolveDiffPathForWorkspace } from "./diffFileActions";
@@ -68,6 +69,73 @@ describe("openDiffFilePrimaryAction", () => {
     });
     expect(openInEditor).not.toHaveBeenCalled();
   });
+
+  it.each([
+    {
+      workspaceRoot: "/workspace",
+      nested: "/workspace/frontend",
+      external: "/other/backend",
+      folderOffset: "",
+    },
+    {
+      workspaceRoot: "C:/workspace",
+      nested: "C:/workspace/frontend",
+      external: "D:/other/backend",
+      folderOffset: "/packages/app",
+    },
+  ])(
+    "keeps identical diff filenames in separate repository surfaces: $workspaceRoot",
+    ({ workspaceRoot, nested, external, folderOffset }) => {
+      const workspace = {
+        filePath: `${workspaceRoot}/team.code-workspace`,
+        workspaceRoot,
+        folders: [{ id: "frontend-folder", name: "Frontend", path: `${nested}${folderOffset}` }],
+        repositories: [
+          { id: "frontend-repo", name: "Frontend", checkoutPath: nested },
+          { id: "backend-repo", name: "Backend", checkoutPath: external },
+        ],
+      };
+      const roots = workspaceFileRoots(workspace);
+      expect(roots.filter((root) => root.path === nested)).toHaveLength(1);
+      const openInEditor = vi.fn();
+      for (const repository of workspace.repositories) {
+        const root = roots.find((root) => root.path === repository.checkoutPath)!;
+        openDiffFilePrimaryAction({
+          threadRef: THREAD_REF,
+          filePath: "src\\index.ts",
+          activeCwd: repository.checkoutPath,
+          repositoryRoot: repository.checkoutPath,
+          rootId: root.id,
+          openInEditor,
+        });
+      }
+      const surfaces = selectThreadRightPanelState(
+        useRightPanelStore.getState().byThreadKey,
+        THREAD_REF,
+      ).surfaces;
+      expect(surfaces).toHaveLength(2);
+      expect(new Set(surfaces.map((surface) => surface.id)).size).toBe(2);
+      expect(
+        surfaces.map((surface) => {
+          if (surface.kind !== "file") throw new Error("Expected file surface");
+          const root = roots.find((root) => root.id === surface.rootId)!;
+          return resolvePathLinkTarget(surface.relativePath, root.path).replaceAll("\\", "/");
+        }),
+      ).toEqual([`${nested}/src/index.ts`, `${external}/src/index.ts`]);
+      expect(openInEditor).not.toHaveBeenCalled();
+      openDiffFilePrimaryAction({
+        threadRef: null,
+        filePath: "src/index.ts",
+        activeCwd: external,
+        repositoryRoot: external,
+        rootId: "backend-repo",
+        openInEditor,
+      });
+      expect(openInEditor.mock.calls[0]?.[0].replaceAll("\\", "/")).toBe(
+        `${external}/src/index.ts`,
+      );
+    },
+  );
 
   it("preserves repository-relative paths in a separate worktree", () => {
     expect(

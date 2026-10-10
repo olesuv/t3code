@@ -9,7 +9,12 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
-import type { ScopedThreadRef, RunId, WorkspaceRepository } from "@t3tools/contracts";
+import {
+  workspaceFileRoots,
+  type ScopedThreadRef,
+  type RunId,
+  type WorkspaceRepository,
+} from "@t3tools/contracts";
 import {
   ArrowRightIcon,
   CheckIcon,
@@ -271,6 +276,12 @@ function RepositoryDiffPanel({
     activeThread?.workspace?.workspaceRoot ??
     activeThread?.worktreePath ??
     activeProject?.workspaceRoot;
+  const activeFileRootId =
+    repository && activeThread?.workspace
+      ? workspaceFileRoots(activeThread.workspace).find(
+          (root) => root.path === repository.checkoutPath,
+        )?.id
+      : undefined;
   const activeRepositoryRoot = repository
     ? repository.checkoutPath
     : activeThread?.worktreePath
@@ -724,6 +735,7 @@ function RepositoryDiffPanel({
         filePath,
         activeCwd,
         repositoryRoot: activeRepositoryRoot,
+        rootId: activeFileRootId,
         openInEditor: (targetPath) => {
           void (async () => {
             const result = await openInPreferredEditor(targetPath);
@@ -743,7 +755,7 @@ function RepositoryDiffPanel({
         },
       });
     },
-    [activeCwd, activeRepositoryRoot, openInPreferredEditor, routeThreadRef],
+    [activeCwd, activeRepositoryRoot, activeFileRootId, openInPreferredEditor, routeThreadRef],
   );
   const collapseDefaultsRef = useRef({ collapseScopeKey, defaultCollapsedDiffFileKeys });
   useLayoutEffect(() => {

@@ -46,9 +46,15 @@ it.effect(
           name: ["One", "Two", "External", "Notes"][index]!,
           path: folder,
         })),
-        repositories: [],
+        repositories: [
+          {
+            id: "external-repository",
+            name: "External repository",
+            checkoutPath: path.dirname(external),
+          },
+        ],
       };
-      const reloaded = { ...workspace, folders: workspace.folders.slice(0, 1) };
+      const reloaded = { ...workspace, folders: workspace.folders.slice(0, 1), repositories: [] };
       const threadId = ThreadId.make("workspace-thread");
       const projectId = ProjectId.make("workspace-project");
       const layer = WorkspaceEntries.layer.pipe(
@@ -83,6 +89,14 @@ it.effect(
         });
         assert.equal(listed.entries[0]?.root?.name, "External");
         assert.equal(listed.entries[0]?.path, "same.txt");
+        const repositoryFiles = yield* entries.list({
+          cwd: meta,
+          threadId,
+          rootId: "external-repository",
+          directoryPath: "checkout",
+        });
+        assert.equal(repositoryFiles.entries[0]?.path, "checkout/same.txt");
+        assert.equal(repositoryFiles.entries[0]?.root?.id, "external-repository");
         const found = yield* entries.search({
           cwd: meta,
           threadId,
