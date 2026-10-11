@@ -11,6 +11,7 @@ import { reviewEnvironment } from "../../state/review";
 import { useCheckpointDiff } from "../../state/queries";
 import { useThreadProjection } from "../../state/use-thread-detail";
 import { useFilesystemReadAccess } from "../../state/filesystem";
+import { DiffStatLabel } from "./DiffStatLabel";
 import type { ReviewSheetProps } from "./ReviewSheet";
 
 /** Summaries keep each checkout's namespace separate until a repository is opened. */
@@ -141,40 +142,44 @@ export function WorkspaceReviewSheet(
             <Text accessibilityRole="alert">{error}</Text>
           ) : null}
           {access.canReadFiles &&
-            groups?.map((group) => (
-              <View key={group.repository.id} className="mb-4">
+            groups?.map((group) => {
+              const totals = group.files.reduce(
+                (total, file) => ({
+                  additions: total.additions + file.additions,
+                  deletions: total.deletions + file.deletions,
+                }),
+                { additions: 0, deletions: 0 },
+              );
+              return (
                 <Pressable
+                  key={group.repository.id}
                   accessibilityRole="button"
                   onPress={() => setRepositoryId(group.repository.id)}
-                  className="py-2"
+                  className="mb-4 gap-1 rounded-lg px-3 py-2 active:bg-row-hover"
                 >
-                  <Text className="font-semibold">{group.repository.name}</Text>
-                  <Text className="text-xs text-muted-foreground">
+                  <View className="flex-row items-center gap-2">
+                    <Text numberOfLines={1} className="min-w-0 flex-1 text-sm font-medium">
+                      {group.repository.name}
+                    </Text>
+                    {!group.error && group.files.length > 0 ? (
+                      <DiffStatLabel additions={totals.additions} deletions={totals.deletions} />
+                    ) : null}
+                  </View>
+                  <Text numberOfLines={1} className="text-xs text-muted-foreground">
                     {group.repository.checkoutPath}
                   </Text>
+                  {group.error ? (
+                    <Text accessibilityRole="alert" className="text-sm">
+                      {group.error}
+                    </Text>
+                  ) : group.incomplete ? (
+                    <Text className="text-sm text-muted-foreground">
+                      Summary incomplete. Open this repository to load changes.
+                    </Text>
+                  ) : null}
                 </Pressable>
-                {group.error ? (
-                  <Text accessibilityRole="alert">{group.error}</Text>
-                ) : group.incomplete ? (
-                  <Text>Summary incomplete. Open this repository to load changes.</Text>
-                ) : !group.files.length ? (
-                  <Text className="text-muted-foreground">No changes</Text>
-                ) : (
-                  group.files.map((file) => (
-                    <Pressable
-                      key={JSON.stringify([environmentId, group.repository.id, file.path])}
-                      accessibilityRole="button"
-                      onPress={() => setRepositoryId(group.repository.id)}
-                      className="py-2"
-                    >
-                      <Text>
-                        {file.path} · +{file.additions} −{file.deletions}
-                      </Text>
-                    </Pressable>
-                  ))
-                )}
-              </View>
-            ))}
+              );
+            })}
           {!props.workspace.repositories.length ? (
             <Text>This workspace has no Git repositories.</Text>
           ) : null}

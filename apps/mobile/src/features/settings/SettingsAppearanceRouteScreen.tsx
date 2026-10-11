@@ -6,6 +6,7 @@ import { CodeAppearanceSection } from "./appearance/sections/CodeAppearanceSecti
 import { TerminalAppearanceSection } from "./appearance/sections/TerminalAppearanceSection";
 import { TextAppearanceSection } from "./appearance/sections/TextAppearanceSection";
 import { ThemeAppearanceSection } from "./appearance/sections/ThemeAppearanceSection";
+import { DiffColorSection } from "./appearance/sections/DiffColorSection";
 
 export function SettingsAppearanceRouteScreen() {
   const insets = useSafeAreaInsets();
@@ -25,6 +26,7 @@ export function SettingsAppearanceRouteScreen() {
         <TextAppearanceSection />
         <TerminalAppearanceSection />
         <CodeAppearanceSection />
+        <DiffColorSection />
       </ScrollView>
     </SettingsScreen>
   );
